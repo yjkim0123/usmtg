@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .env
 ml_cache/_gnn_train.py
+# Allow pre-trained ML cache (needed for deployment — no torch on server)
+!ml_cache/*.pkl
+!ml_cache/*.npz

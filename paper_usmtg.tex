@@ -24,7 +24,8 @@ Selecting a meeting airport for travelers departing from multiple origins is a m
 We present USMTG (US Multimodal Transit Graph), a graph-based framework that models the continental US domestic flight network as a directed weighted graph and solves the multi-origin meeting point problem using ML-enhanced Dijkstra search with post-hoc fairness re-ranking.
 The system integrates seven machine-learning components: (1) an XGBoost fare predictor replacing distance-bucket heuristics; (2) an airport-specific delay distribution model; (3) K-means geographic pre-filtering that reduces the candidate airport space by approximately 80\%; (4) GraphSAGE graph neural network embeddings for embedding-guided search pruning; (5) a LightGBM learning-to-rank re-ranker; (6) an MLP travel-time surrogate for fast N-party approximation; and (7) a degree-based demand weighting module.
 Meeting-point quality is evaluated under two fairness criteria: Nash Bargaining Score (maximising the product of participants' gains over their worst-case travel time) and Kalai--Smorodinsky (KS) Score (minimising the minimum proportional gain across participants).
-Experiments over 200 randomly drawn multi-origin queries covering hub-to-hub, hub-to-regional, and cross-continental scenarios demonstrate that the ML-enhanced pipeline reduces mean maximum travel time by 11.4\% compared to a baseline graph-only Dijkstra, while the fairness-aware re-ranking yields KS scores 18.3\% higher than pure time-minimisation.
+Experiments over 200 randomly drawn multi-origin queries (178 valid) covering hub-to-hub, hub-to-regional, regional-to-regional, and cross-continental scenarios demonstrate that USMTG returns rich multi-criteria results (fare, CO$_2$, P$_{90}$ delay, Nash and KS scores) at a mean latency of 748~ms, with a 53.2\% K-means candidate reduction that enables scalable N-party search.
+The mean time overhead compared to a pure time-optimal Dijkstra baseline is 3.9\%, representing the cost of the ML inference and fairness-aware re-ranking pipeline.
 The framework is deployed as a public web application with real-time query support.
 \end{abstract}
 
@@ -42,7 +43,7 @@ The problem of coordinating travel for geographically distributed groups — cho
 Unlike the classical facility location problem, the meeting airport problem must simultaneously optimise over at least three conflicting criteria: total travel time, total airfare, and equitable burden-sharing across all participants.
 
 The US domestic flight network is an ideal testbed for this problem: it encompasses approximately 500 commercially served airports, tens of thousands of route segments, and a richly heterogeneous cost and topology landscape that defies simple geometric approximations.
-Prior work on meeting-point optimisation in transportation networks has focused primarily on road networks \cite{li2021}, public transit \cite{zheng2022}, and symmetric two-party settings \cite{cai2023}.
+Prior work on meeting-point optimisation in transportation networks has focused primarily on road networks \cite{li2016} and symmetric two-party settings.
 Extensions to asymmetric N-party air travel with ML-enhanced fare estimates and formal fairness objectives have not been addressed in the literature.
 
 This paper makes the following contributions:
@@ -50,7 +51,7 @@ This paper makes the following contributions:
     \item We construct USMTG, a curated directed weighted graph of the US domestic flight network, with 487 airports and 8,142 directed route edges annotated with flight time, estimated fare, distance, and connectivity metadata.
     \item We integrate seven ML components into a modified Dijkstra search pipeline (Section~\ref{sec:ml}), each addressing a specific weakness of the baseline graph search.
     \item We define and apply two fairness objectives — Nash Bargaining Score and Kalai--Smorodinsky Score — to the airport meeting point problem (Section~\ref{sec:fairness}).
-    \item We evaluate the combined system on 200 diverse multi-origin queries and demonstrate statistically significant improvements in travel time, cost prediction accuracy, and fairness over baseline approaches (Section~\ref{sec:experiments}).
+    \item We evaluate the combined system on 200 diverse multi-origin queries (178 valid), report realistic latency and fairness metrics, and characterise the trade-off between pure time-optimality and multi-criteria decision support (Section~\ref{sec:experiments}).
     \item We release the system as an open web application and provide the graph dataset and model code for reproducibility.
 \end{enumerate}
 
@@ -60,8 +61,8 @@ This paper makes the following contributions:
 
 \subsection{Meeting Point Problems in Transportation Networks}
 
-The $k$-meeting point problem on road graphs was formalised by \citeauthor{li2021} \cite{li2021}, who proposed index-based pruning to identify the vertex minimising aggregate travel time from $k$ sources.
-\citeauthor{zheng2022} \cite{zheng2022} extended this to multimodal public transit networks using time-expanded graphs, but assumed symmetric travel costs not present in air networks.
+The multi-meeting-point route search problem on road networks was studied by \citeauthor{li2016} \cite{li2016}, who proposed index-based pruning to identify vertices minimising aggregate travel distance or time from $k$ sources.
+These approaches operate on road graphs and assume uniform per-edge costs; the air network setting introduces heterogeneous fare structures, hub-and-spoke topology, and the need for fairness scoring across parties with asymmetric access to hubs.
 
 \subsection{Air Transportation Network Analysis}
 
@@ -70,13 +71,13 @@ Hub-and-spoke topology, small-world properties, and betweenness centrality have 
 
 \subsection{ML for Air Travel Prediction}
 
-Machine learning approaches to airfare prediction include gradient-boosted trees on booking-window features \cite{groves2013} and LSTM-based temporal models \cite{tziridis2017}.
+Machine learning approaches to airfare prediction have applied gradient-boosted regression and neural sequence models to booking-window and itinerary features \cite{etzioni2003}.
 GNN-based representations of transportation networks are an active research area \cite{derrow2021}; we apply GraphSAGE \cite{hamilton2017} to embed airports for similarity-guided search pruning, extending its use from travel-time prediction to meeting-point optimisation.
 
 \subsection{Fairness in Multi-Party Optimisation}
 
 Nash Bargaining Solutions and Kalai--Smorodinsky solutions are standard axioms from cooperative game theory \cite{nash1950,kalai1975}.
-Their application to transportation fairness has been studied in the context of ride-sharing rebalancing \cite{lesmana2019} and public transit equity \cite{camporeale2017}; application to the multi-party airport selection problem is novel to this work.
+Their application to transportation fairness has been studied in the context of on-demand ride-sharing \cite{lesmana2019}; application to the multi-party airport selection problem is novel to this work.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Problem Formulation}
@@ -220,32 +221,51 @@ All experiments run on a single CPU core (Apple M4 Pro, no GPU); inference uses 
 
 \begin{itemize}
     \item $\overline{\tau}_{\max}$: mean maximum travel time across participants (minutes).
-    \item $\overline{C}$: mean total fare across participants (USD).
-    \item $\overline{\text{KS}}$: mean KS fairness score (higher = more equitable).
-    \item $T_{q}$: mean query latency (seconds).
+    \item $\overline{\text{KS}}$: mean Kalai--Smorodinsky fairness score using global individual-best reference; higher is more equitable.
+    \item $T_{q}$: mean query latency (milliseconds).
+    \item Filter\%: candidate airports excluded by K-means pre-filter.
 \end{itemize}
 
 \subsection{Results}
 
+Table~\ref{tab:results} reports aggregate results on the 178 valid queries.
+``Baseline'' is pure time-optimal Dijkstra.
+``USMTG'' is the full pipeline; the reported top-1 result is the time-optimal selection from the ranked top-10 list.
+
 \begin{table}[htbp]
 \centering
-\caption{Performance comparison across system configurations (200 queries).}
+\caption{System comparison on 178 valid queries (200 attempted). All experiments on Apple M4 Pro CPU, no GPU.}
 \label{tab:results}
 \begin{tabular}{@{}lcccc@{}}
 \toprule
-Configuration & $\overline{\tau}_{\max}$ (min) & $\overline{C}$ (USD) & $\overline{\text{KS}}$ & $T_{q}$ (s) \\
+Configuration & $\overline{\tau}_{\max}$ (min) & $\overline{\text{KS}}$ & $T_{q}$ (ms) & Filter\% \\
 \midrule
-Baseline                 & 312.4 & --- & 0.61 & 1.42 \\
-+Fare                    & 308.1 & 487 & 0.63 & 1.51 \\
-+Fare+Filter             & 298.7 & 481 & 0.66 & 0.61 \\
-USMTG (full)             & \textbf{276.7} & \textbf{453} & \textbf{0.72} & \textbf{0.58} \\
+Baseline (Dijkstra)   & \textbf{301.9} & 0.728 & \textbf{3}  & --- \\
+USMTG (full, top-1)   & 313.6          & 0.712 & 748         & 53.2 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The full USMTG pipeline reduces $\overline{\tau}_{\max}$ by 11.4\% over baseline while improving KS fairness score by 18.0\%.
-K-means pre-filtering (Module~(3)) provides the largest single speedup (2.3$\times$), enabling sub-second latency.
-The fairness re-ranking (NBS + KS) accounts for the majority of the KS improvement over the +Fare+Filter configuration.
+The pure time-optimal baseline achieves a 3.9\% lower mean max-time than USMTG ($301.9$ vs.\ $313.6$~min), as expected: baseline Dijkstra is unconstrained by K-means candidate filtering and optimises a single objective.
+The 748~ms USMTG latency includes fare prediction inference, Monte Carlo delay simulation ($N=500$), LightGBM re-ranking, and GNN embedding similarity scoring.
+The K-means pre-filter reduces the candidate airport pool by 53.2\% on average, a key enabler for $n>2$ party queries where running exhaustive Dijkstra from each origin otherwise scales quadratically.
+
+The primary contribution of USMTG is \emph{information richness}: as shown in Table~\ref{tab:info}, baseline Dijkstra returns a single airport name, whereas USMTG returns a ranked top-10 list with per-leg fare estimates, CO$_2$ per seat, P$_{90}$ delay bounds, missed-connection probability, Nash Bargaining Score, and KS fairness score.
+This enables users to navigate explicit trade-offs between time, cost, emissions, and equitable burden-sharing.
+
+\begin{table}[htbp]
+\centering
+\caption{Decision-support information provided by each configuration.}
+\label{tab:info}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+Configuration & Fare & CO$_2$ & P$_{90}$ & Nash & KS & Top-$k$ \\
+\midrule
+Baseline (Dijkstra)  & -- & -- & -- & -- & -- & -- \\
+USMTG                & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Case Studies}
 
@@ -315,8 +335,9 @@ The fairness scoring framework developed here generalises naturally to multimoda
 \section{Conclusion}
 % ─────────────────────────────────────────────────────────────────────────────
 
-We presented USMTG, a graph-based multi-origin airport meeting point optimisation framework integrating seven ML modules and fairness-aware re-ranking.
-The system achieves an 11.4\% reduction in maximum travel time and an 18.0\% improvement in KS fairness score over a baseline Dijkstra approach, with sub-second query latency through K-means pre-filtering.
+We presented USMTG, a graph-based decision-support framework for multi-origin airport meeting point selection, integrating seven ML modules and two cooperative-game-theoretic fairness objectives.
+The framework provides per-result fare estimates, CO$_2$ emissions, P$_{90}$ delay bounds, Nash and KS scores, and a ranked top-10 list at 748~ms median latency, at a 3.9\% time-overhead relative to pure time-optimal Dijkstra.
+K-means geographic pre-filtering reduces the candidate pool by 53.2\%, enabling scalable $n$-party search.
 The framework is publicly deployed and the codebase is open-source, providing a reproducible platform for future research in multi-party air travel optimisation, fairness-aware transportation recommendation, and applied graph machine learning.
 
 % ─────────────────────────────────────────────────────────────────────────────
@@ -330,23 +351,14 @@ Graph and route data were obtained from the OpenFlights database (\url{https://o
 \bibliographystyle{elsarticle-num}
 \begin{thebibliography}{99}
 
-\bibitem{li2021}
-Y.\ Li, Y.\ Hu, C.\ Sha, and S.\ Wang, ``Towards efficient and effective meeting point search in road networks,'' \textit{IEEE Transactions on Knowledge and Data Engineering}, vol.~33, no.~8, pp.~3344--3357, 2021.
-
-\bibitem{zheng2022}
-K.\ Zheng, B.\ Zheng, J.\ Xu, W.\ Liu, A.\ Liu, and Z.\ Li, ``Approximate and exact approaches for meeting point queries in road networks,'' \textit{IEEE Transactions on Knowledge and Data Engineering}, vol.~34, no.~8, pp.~3835--3849, 2022.
-
-\bibitem{cai2023}
-Z.\ Cai, M.\ Meylan, and R.\ Weismantel, ``Fair meeting point optimization for distributed parties,'' \textit{Transportation Research Part B}, vol.~174, 102766, 2023.
+\bibitem{li2016}
+R.\ Li, L.\ Qin, J.\ X.\ Yu, and R.\ Mao, ``Optimal multi-meeting-point route search,'' \textit{IEEE Transactions on Knowledge and Data Engineering}, vol.~28, no.~3, pp.~770--784, 2016.
 
 \bibitem{guimera2005}
 R.\ Guimerà, S.\ Mossa, A.\ Turtschi, and L.\ A.\ N.\ Amaral, ``The worldwide air transportation network: Anomalous centrality, community structure, and cities' global roles,'' \textit{Proceedings of the National Academy of Sciences}, vol.~102, no.~22, pp.~7794--7799, 2005.
 
-\bibitem{groves2013}
-P.\ Groves, B.\ Kalanovic, and G.\ Yee, ``Predicting airfare prices,'' Stanford CS229 Technical Report, 2013.
-
-\bibitem{tziridis2017}
-K.\ Tziridis, T.\ Kalampokas, G.\ A.\ Papakostas, and K.\ I.\ Diamantaras, ``Airfare prices prediction using machine learning techniques,'' in \textit{Proc.\ EUSIPCO}, 2017.
+\bibitem{etzioni2003}
+O.\ Etzioni, R.\ Tuchinda, C.\ A.\ Knoblock, and A.\ Yates, ``To buy or not to buy: Mining airfare data to minimize ticket purchase price,'' in \textit{Proc.\ ACM SIGKDD}, 2003, pp.~119--128.
 
 \bibitem{derrow2021}
 A.\ Derrow-Pinion, J.\ She, D.\ Wong, O.\ Lange, T.\ Hester, L.\ Perez, M.\ Nunkesser, S.\ Lee, X.\ Guo, B.\ Wiltshire, P.\ Battaglia, V.\ Gupta, A.\ Li, Z.\ Xu, A.\ Sanchez-Gonzalez, Y.\ Li, and P.\ Velickovic, ``ETA prediction with graph neural networks in Google Maps,'' in \textit{Proc.\ CIKM}, 2021.
@@ -364,10 +376,7 @@ J.\ F.\ Nash, ``The bargaining problem,'' \textit{Econometrica}, vol.~18, no.~2,
 E.\ Kalai and M.\ Smorodinsky, ``Other solutions to Nash's bargaining problem,'' \textit{Econometrica}, vol.~43, no.~3, pp.~513--518, 1975.
 
 \bibitem{lesmana2019}
-N.\ S.\ Lesmana, X.\ Zhang, and X.\ Qu, ``Balancing efficiency and fairness in ride-hailing: A multi-objective optimization approach,'' \textit{Transportation Research Part C}, vol.~105, pp.~419--434, 2019.
-
-\bibitem{camporeale2017}
-R.\ Camporeale, L.\ Caggiani, A.\ Fonzone, and M.\ Ottomanelli, ``Quantifying the impacts of horizontal and vertical equity in transit route planning,'' \textit{Transportation Planning and Technology}, vol.~40, no.~1, pp.~28--44, 2017.
+N.\ S.\ Lesmana, X.\ Zhang, and X.\ Bei, ``Balancing efficiency and fairness in on-demand ridesourcing,'' in \textit{Advances in Neural Information Processing Systems (NeurIPS)}, 2019.
 
 \bibitem{kim2026knmtg}
 Y.\ Kim, ``KNMTG: A time-dependent multimodal transit graph for nationwide meeting point search in South Korea,'' \textit{ACM Transactions on Spatial Algorithms and Systems}, under review, 2026.
