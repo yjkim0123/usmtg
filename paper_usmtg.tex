@@ -206,15 +206,14 @@ Great-circle distances are computed using the Haversine formula; estimated fligh
 
 \subsection{Experimental Setup}
 
-We evaluate four system configurations:
+We compare two configurations:
 \begin{itemize}
-    \item \textbf{Baseline}: Dijkstra on $G$, time-optimal, no ML.
-    \item \textbf{+Fare}: Baseline with Module~(1) (ML fare prediction).
-    \item \textbf{+Fare+Filter}: +Fare with Module~(3) (K-means pre-filter).
-    \item \textbf{USMTG (full)}: All seven modules + fairness re-ranking.
+    \item \textbf{Baseline}: Dijkstra on $G$, time-optimal, no ML, returns a single airport.
+    \item \textbf{USMTG (full)}: All seven ML modules + fairness re-ranking, returns top-10 annotated results.
 \end{itemize}
 
-Query set: 200 randomly drawn 2--4 origin queries stratified across: (i) hub-to-hub; (ii) hub-to-regional; (iii) regional-to-regional; (iv) cross-continental ($\geq$2500~km separation).
+Query set: 200 randomly drawn 2-origin queries stratified across four categories (50 each): (i) hub-to-hub; (ii) hub-to-regional; (iii) regional-to-regional; (iv) cross-continental ($\geq$2500~km separation).
+178 of 200 queries returned valid results in both configurations (22 had no common reachable airport).
 All experiments run on a single CPU core (Apple M4 Pro, no GPU); inference uses pre-trained models loaded from cache.
 
 \subsection{Metrics}
@@ -300,7 +299,7 @@ Additional case studies covering Boston--Dallas (Figure~\ref{fig:bos_dal}), Chic
 \section{Web Application Deployment}
 % ─────────────────────────────────────────────────────────────────────────────
 
-The USMTG system is deployed as a public Flask web application at \url{https://usmtg.onrender.com} (Render.com free tier).
+The USMTG system is deployed as a public Flask web application on Render.com (free tier); the source code and deployment configuration are available at \url{https://github.com/yjkim0123/usmtg}.
 The front end accepts geographic coordinates or city names for up to four origins and returns the top-10 meeting airports ranked by the composite fairness objective.
 Each result card displays maximum travel time, total estimated fare, CO$_2$ emissions (kg per seat, following ICAO methodology), KS score, and a per-traveller itinerary breakdown.
 
