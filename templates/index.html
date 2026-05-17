@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>USMTG — US Meeting Point Finder</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+
+header {
+  background: #161b22; border-bottom: 1px solid #30363d;
+  padding: 14px 24px; display: flex; align-items: center; gap: 16px;
+}
+header h1 { font-size: 1.2rem; font-weight: 700; color: #ffd700; }
+header p  { font-size: 0.8rem; color: #8b949e; }
+
+.layout { display: grid; grid-template-columns: 340px 1fr; height: calc(100vh - 57px); }
+
+/* ── Sidebar ── */
+.sidebar {
+  background: #161b22; border-right: 1px solid #30363d;
+  padding: 16px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.sidebar h2 { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 1px; color: #8b949e; }
+
+#city-list { display: flex; flex-direction: column; gap: 6px; }
+.city-row { display: flex; align-items: center; gap: 6px; }
+.city-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; border: 2px solid rgba(255,255,255,0.3); }
+.city-input {
+  flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+  color: #e6edf3; padding: 7px 10px; font-size: 0.88rem; outline: none; transition: border-color .15s;
+}
+.city-input:focus { border-color: #ffd700; }
+.city-remove {
+  background: none; border: none; color: #555; font-size: 1.1rem; cursor: pointer;
+  padding: 2px 4px; border-radius: 4px; transition: color .15s; flex-shrink: 0;
+}
+.city-remove:hover { color: #ff4444; }
+
+#add-city-btn {
+  align-self: flex-start; background: none; border: 1px dashed #30363d;
+  color: #8b949e; font-size: 0.83rem; padding: 5px 12px; border-radius: 6px;
+  cursor: pointer; transition: border-color .15s, color .15s;
+}
+#add-city-btn:hover { border-color: #ffd700; color: #ffd700; }
+
+.range-row { display: flex; align-items: center; gap: 8px; font-size: 0.83rem; }
+.range-row input { flex: 1; accent-color: #ffd700; }
+.range-val { min-width: 24px; text-align: right; color: #ffd700; font-weight: 700; }
+
+.time-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.time-row label { font-size: 0.75rem; color: #8b949e; display: block; margin-bottom: 3px; }
+.time-row input {
+  width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+  color: #e6edf3; padding: 6px 8px; font-size: 0.88rem; outline: none;
+}
+.time-row input:focus { border-color: #ffd700; }
+
+button#search-btn {
+  background: #ffd700; color: #0d1117; font-weight: 700; font-size: 0.95rem;
+  border: none; border-radius: 8px; padding: 10px; cursor: pointer; transition: background .15s;
+}
+button#search-btn:hover:not(:disabled) { background: #ffe44d; }
+button#search-btn:disabled { opacity: 0.5; cursor: default; }
+
+#status { font-size: 0.8rem; color: #8b949e; text-align: center; min-height: 16px; }
+
+#results { display: none; flex-direction: column; gap: 14px; }
+.section-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; color: #8b949e; }
+
+/* ── Best card ── */
+.best-card { background: #1c2128; border: 1px solid #ffd700; border-radius: 10px; padding: 14px; }
+.airport-code { font-size: 1.8rem; font-weight: 800; color: #ffd700; }
+.city-name    { font-size: 0.95rem; color: #e6edf3; margin-bottom: 10px; }
+.traveler-row { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; padding: 3px 0; flex-wrap: wrap; }
+.traveler-label { font-weight: 700; min-width: 20px; }
+.tag { background: #21262d; border-radius: 4px; padding: 1px 5px; font-size: 0.73rem; }
+.metrics-row { display: flex; gap: 10px; margin-top: 10px; font-size: 0.78rem; color: #8b949e; flex-wrap: wrap; border-top: 1px solid #30363d; padding-top: 8px; }
+.metrics-row span b { color: #e6edf3; }
+
+/* ── Chart tabs ── */
+.chart-tabs { display: flex; gap: 4px; }
+.tab-btn {
+  background: #21262d; border: 1px solid #30363d; border-radius: 6px 6px 0 0;
+  color: #8b949e; font-size: 0.75rem; padding: 5px 10px; cursor: pointer; transition: all .15s;
+}
+.tab-btn.active { background: #1c2128; border-bottom-color: #1c2128; color: #ffd700; }
+.tab-btn:hover:not(.active) { color: #e6edf3; }
+.chart-panel { background: #1c2128; border-radius: 0 8px 8px 8px; border: 1px solid #30363d; padding: 10px; display: none; }
+.chart-panel.active { display: block; }
+
+/* ── Sortable table ── */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+th {
+  color: #8b949e; font-weight: 600; text-align: left;
+  padding: 5px 5px; border-bottom: 1px solid #30363d;
+  cursor: pointer; user-select: none; white-space: nowrap;
+}
+th:hover { color: #e6edf3; }
+th.sort-asc::after  { content: ' ▲'; color: #ffd700; }
+th.sort-desc::after { content: ' ▼'; color: #ffd700; }
+td { padding: 4px 5px; border-bottom: 1px solid #1c2128; }
+tr:hover td { background: #1c2128; }
+.best-row td { color: #ffd700; }
+
+/* ── Map ── */
+.map-area { position: relative; }
+#map { width: 100%; height: 100%; }
+
+.map-legend {
+  position: absolute; bottom: 24px; right: 12px; z-index: 1000;
+  background: rgba(13,17,23,0.88); border: 1px solid #30363d;
+  border-radius: 8px; padding: 10px 14px; font-size: 0.76rem;
+  backdrop-filter: blur(4px);
+}
+.legend-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+.legend-dot  { width: 10px; height: 10px; border-radius: 50%; }
+
+.leaflet-popup-content-wrapper { background: #1c2128; color: #e6edf3; border: 1px solid #30363d; }
+.leaflet-popup-tip { background: #1c2128; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>✈ USMTG — US Meeting Point Finder</h1>
+    <p>N-party · Pareto (time × cost × CO₂) · Nash/K-S fairness · GNN embeddings · Monte Carlo</p>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- ── Sidebar ── -->
+  <div class="sidebar">
+
+    <div>
+      <h2 style="margin-bottom:8px">Travelers</h2>
+      <div id="city-list"></div>
+      <button id="add-city-btn" onclick="addCity()" style="margin-top:8px">+ Add traveler</button>
+    </div>
+
+    <div>
+      <h2>Max Layovers</h2>
+      <div class="range-row" style="margin-top:6px">
+        <span style="color:#8b949e;font-size:.8rem">0</span>
+        <input type="range" id="max_stops" min="0" max="2" value="2"
+               oninput="document.getElementById('stops_val').textContent=this.value">
+        <span style="color:#8b949e;font-size:.8rem">2</span>
+        <span class="range-val" id="stops_val">2</span>
+      </div>
+    </div>
+
+    <div>
+      <h2>Time Window</h2>
+      <div class="time-row" style="margin-top:6px">
+        <div>
+          <label>Depart after (h)</label>
+          <input type="number" id="depart_after" min="0" max="23" value="0">
+        </div>
+        <div>
+          <label>Arrive before (h)</label>
+          <input type="number" id="arrive_before" min="1" max="24" value="24">
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <h2>Travel Date <span style="color:#555;font-weight:400;text-transform:none;letter-spacing:0">(optional, for real fares)</span></h2>
+      <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
+        <input type="date" id="travel_date"
+               style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3;padding:6px 8px;font-size:0.88rem;outline:none;"
+               onfocus="this.style.borderColor='#ffd700'" onblur="this.style.borderColor='#30363d'">
+        <span id="amadeus-badge" style="font-size:0.7rem;padding:2px 7px;border-radius:10px;display:none"></span>
+      </div>
+    </div>
+
+    <button id="search-btn" onclick="doSearch()">Find Meeting Point</button>
+    <div id="status"></div>
+
+    <div id="results">
+      <div class="section-title">Best Match</div>
+      <div class="best-card" id="best-card"></div>
+
+      <div class="section-title" style="margin-bottom:4px">Analysis</div>
+      <div class="chart-tabs">
+        <button class="tab-btn active" onclick="showTab('pareto',this)">Pareto</button>
+        <button class="tab-btn" onclick="showTab('timeline',this)">Travel Time</button>
+        <button class="tab-btn" onclick="showTab('co2',this)">CO₂</button>
+      </div>
+      <div class="chart-panel active" id="tab-pareto"><canvas id="pareto-chart" height="150"></canvas></div>
+      <div class="chart-panel" id="tab-timeline"><canvas id="timeline-chart" height="150"></canvas></div>
+      <div class="chart-panel" id="tab-co2"><canvas id="co2-chart" height="150"></canvas></div>
+
+      <div class="section-title" style="margin-bottom:4px">Top Alternatives <span id="sort-hint" style="color:#8b949e;font-weight:400;font-size:0.7rem;text-transform:none;letter-spacing:0">(click headers to sort)</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th onclick="sortTable('airport')">Airport</th>
+              <th onclick="sortTable('max_time_min')">Max</th>
+              <th onclick="sortTable('total_cost')">Cost</th>
+              <th onclick="sortTable('total_co2')">CO₂</th>
+              <th onclick="sortTable('ks')">K-S</th>
+              <th onclick="sortTable('p90')">p90</th>
+              <th onclick="sortTable('miss_pct')">Miss%</th>
+            </tr>
+          </thead>
+          <tbody id="alt-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Map ── -->
+  <div class="map-area">
+    <div id="map"></div>
+    <div class="map-legend" id="map-legend">
+      <div class="legend-row"><span style="color:#ffd700;font-size:1rem">★</span> Best meeting point</div>
+      <div class="legend-row"><span class="legend-dot" style="background:#ffa500"></span> Pareto alternative</div>
+      <div id="legend-origins"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const COLORS = ['#ff4444','#4488ff','#44dd88','#ff9944','#cc44ff','#44ffee','#ff44cc','#ffff44'];
+
+let cityCount = 0;
+let _tableData = [];
+let _sortKey = 'max_time_min';
+let _sortDir = 1;
+let _bestCode = '';
+
+// ── Charts ──────────────────────────────────────────────────────────────────
+let charts = {};
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+function showTab(name, btn) {
+  document.querySelectorAll('.chart-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+
+const CHART_OPTS = {
+  responsive: true,
+  plugins: { legend: { display: false } },
+  scales: {
+    x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+    y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }
+  }
+};
+
+function renderParetoChart(pareto) {
+  destroyChart('pareto');
+  charts['pareto'] = new Chart(document.getElementById('pareto-chart').getContext('2d'), {
+    type: 'bubble',
+    data: {
+      datasets: [{
+        data: pareto.map(r => ({
+          x: +(r.max_time_min / 60).toFixed(2),
+          y: r.total_cost,
+          r: Math.max(5, Math.sqrt(r.total_co2) * 0.6)
+        })),
+        backgroundColor: pareto.map((r, i) => i === 0 ? '#ffd700cc' : '#ffa500aa'),
+        borderColor: '#ffd700',
+        borderWidth: 1,
+      }]
+    },
+    options: {
+      ...CHART_OPTS,
+      plugins: {
+        ...CHART_OPTS.plugins,
+        tooltip: { callbacks: { label: ctx => {
+          const r = pareto[ctx.dataIndex];
+          return `${r.airport}: ${r.max_time} · $${r.total_cost} · ${r.total_co2}kg CO₂`;
+        }}}
+      },
+      scales: {
+        x: { title: { display: true, text: 'Max time (h)', color: '#8b949e' }, ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+        y: { title: { display: true, text: 'Total cost ($)', color: '#8b949e' }, ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+}
+
+function renderTimelineChart(top, origins) {
+  destroyChart('timeline');
+  const candidates = top.slice(0, 6);
+  const labels = candidates.map(r => r.airport);
+  const datasets = origins.map((o, i) => ({
+    label: String.fromCharCode(65 + i) + ': ' + o.name,
+    data: candidates.map(r => +(r.travelers[i].time.replace('h','.').replace('m','') || 0)),
+    backgroundColor: COLORS[i % COLORS.length] + 'cc',
+    borderColor: COLORS[i % COLORS.length],
+    borderWidth: 1,
+    borderRadius: 3,
+  }));
+
+  charts['timeline'] = new Chart(document.getElementById('timeline-chart').getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      ...CHART_OPTS,
+      plugins: {
+        legend: { display: true, labels: { color: '#8b949e', font: { size: 10 }, boxWidth: 12 } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${top[ctx.dataIndex].travelers[ctx.datasetIndex].time}` }}
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+        y: { title: { display: true, text: 'Travel time (h)', color: '#8b949e' }, ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+}
+
+function renderCO2Chart(top, origins) {
+  destroyChart('co2');
+  const candidates = top.slice(0, 6);
+  const labels = candidates.map(r => r.airport);
+  const datasets = origins.map((o, i) => ({
+    label: String.fromCharCode(65 + i) + ': ' + o.name,
+    data: candidates.map(r => r.travelers[i].co2),
+    backgroundColor: COLORS[i % COLORS.length] + 'cc',
+    borderColor: COLORS[i % COLORS.length],
+    borderWidth: 1,
+    borderRadius: 3,
+  }));
+
+  charts['co2'] = new Chart(document.getElementById('co2-chart').getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      ...CHART_OPTS,
+      plugins: {
+        legend: { display: true, labels: { color: '#8b949e', font: { size: 10 }, boxWidth: 12 } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${top[ctx.dataIndex].travelers[ctx.datasetIndex].co2} kg` }}
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+        y: { title: { display: true, text: 'CO₂ (kg)', color: '#8b949e' }, ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+}
+
+// ── Best card ────────────────────────────────────────────────────────────────
+function renderBestCard(best, origins) {
+  const card = document.getElementById('best-card');
+  const maxTime = Math.max(...best.travelers.map(t => parseFloat(t.time)));
+
+  const travelers = best.travelers.map((t, i) => {
+    const color = COLORS[i % COLORS.length];
+    const mins = best.travelers[i] ? parseTimeToMin(t.time) : 0;
+    const maxMins = best.max_time_min;
+    const pct = maxMins > 0 ? Math.round((mins / maxMins) * 100) : 100;
+    return `<div class="traveler-row">
+      <span class="traveler-label" style="color:${color}">${t.label}</span>
+      <span style="color:#8b949e;font-size:.72rem;min-width:80px">${origins[i].name}</span>
+      <div style="flex:1;background:#21262d;border-radius:3px;height:6px;min-width:40px">
+        <div style="width:${pct}%;background:${color};height:100%;border-radius:3px"></div>
+      </div>
+      <span class="tag">${t.time}</span>
+      <span class="tag">$${t.fare}</span>
+      <span class="tag">${t.co2}kg</span>
+      <span class="tag">${t.stops}✈</span>
+    </div>`;
+  }).join('');
+
+  card.innerHTML = `
+    <div class="airport-code">★ ${best.airport}</div>
+    <div class="city-name">${best.city}</div>
+    ${travelers}
+    <div class="metrics-row">
+      <span>Max <b>${best.max_time}</b></span>
+      <span>Cost <b>$${best.total_cost}</b></span>
+      <span>CO₂ <b>${best.total_co2}kg</b></span>
+      <span>Δ <b>${best.imbalance}min</b></span>
+      <span>K-S <b>${best.ks.toFixed(3)}</b></span>
+      <span>p90 <b>${best.p90}</b></span>
+      <span>Miss <b>${best.miss_pct}%</b></span>
+    </div>`;
+}
+
+function parseTimeToMin(str) {
+  const m = str.match(/(\d+)h(\d+)m/);
+  if (m) return parseInt(m[1]) * 60 + parseInt(m[2]);
+  const h = str.match(/(\d+)h/);
+  if (h) return parseInt(h[1]) * 60;
+  return 0;
+}
+
+// ── Sortable table ───────────────────────────────────────────────────────────
+function sortTable(key) {
+  if (_sortKey === key) _sortDir *= -1;
+  else { _sortKey = key; _sortDir = key === 'ks' ? -1 : 1; }
+  document.querySelectorAll('th').forEach(th => th.classList.remove('sort-asc','sort-desc'));
+  const th = [...document.querySelectorAll('th')].find(t => t.getAttribute('onclick') === `sortTable('${key}')`);
+  if (th) th.classList.add(_sortDir === 1 ? 'sort-asc' : 'sort-desc');
+  renderTable(_tableData, _bestCode);
+}
+
+function renderTable(top, bestCode) {
+  _tableData = top; _bestCode = bestCode;
+  const sorted = [...top].sort((a, b) => {
+    let av = a[_sortKey], bv = b[_sortKey];
+    if (typeof av === 'string') av = av.toLowerCase(), bv = bv.toLowerCase();
+    return _sortDir * (av < bv ? -1 : av > bv ? 1 : 0);
+  });
+  document.getElementById('alt-body').innerHTML = sorted.map(r => `
+    <tr class="${r.airport === bestCode ? 'best-row' : ''}">
+      <td><b>${r.airport}</b> <span style="color:#8b949e">${r.city}</span></td>
+      <td>${r.max_time}</td>
+      <td>$${r.total_cost}</td>
+      <td>${r.total_co2}kg</td>
+      <td>${r.ks.toFixed(3)}</td>
+      <td>${r.p90}</td>
+      <td>${r.miss_pct}%</td>
+    </tr>`).join('');
+}
+
+// ── Map ──────────────────────────────────────────────────────────────────────
+const map = L.map('map').setView([38, -96], 4);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © CARTO', subdomains: 'abcd', maxZoom: 19
+}).addTo(map);
+
+let mapLayers = [];
+function clearLayers() { mapLayers.forEach(l => map.removeLayer(l)); mapLayers = []; }
+function addLayer(l)   { l.addTo(map); mapLayers.push(l); return l; }
+
+function dotIcon(color, size=14) {
+  return L.divIcon({
+    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 6px ${color}80"></div>`,
+    className: '', iconAnchor: [size/2, size/2]
+  });
+}
+function starIcon() {
+  return L.divIcon({
+    html: `<div style="font-size:30px;line-height:1;color:#ffd700;filter:drop-shadow(0 0 5px #ffd700)">★</div>`,
+    className: '', iconAnchor: [15, 15]
+  });
+}
+function diamondIcon() {
+  return L.divIcon({
+    html: `<div style="width:12px;height:12px;background:#ffa500;transform:rotate(45deg);border:1.5px solid white"></div>`,
+    className: '', iconAnchor: [6, 6]
+  });
+}
+
+function renderMap(data) {
+  clearLayers();
+  const { origins, best, pareto } = data;
+  const bounds = [];
+
+  origins.forEach((o, i) => {
+    const color = COLORS[i % COLORS.length];
+    addLayer(L.marker([o.lat, o.lon], { icon: dotIcon(color) })
+      .bindPopup(`<b>${String.fromCharCode(65+i)}: ${o.name}</b>`));
+    addLayer(L.polyline([[o.lat, o.lon], [best.lat, best.lon]], {
+      color, weight: 2, dashArray: '6,5', opacity: 0.85
+    }));
+    bounds.push([o.lat, o.lon]);
+  });
+
+  pareto.filter(r => r.airport !== best.airport).forEach(r => {
+    addLayer(L.marker([r.lat, r.lon], { icon: diamondIcon() })
+      .bindPopup(`<b>${r.airport} — ${r.city}</b><br>Max: ${r.max_time} · $${r.total_cost} · ${r.total_co2}kg`));
+    bounds.push([r.lat, r.lon]);
+  });
+
+  addLayer(L.marker([best.lat, best.lon], { icon: starIcon() })
+    .bindPopup(`<b>★ ${best.airport} — ${best.city}</b><br>
+      Max: ${best.max_time} · $${best.total_cost} · ${best.total_co2}kg CO₂<br>
+      K-S: ${best.ks.toFixed(3)} · p90: ${best.p90} · Miss: ${best.miss_pct}%`)
+    .openPopup());
+  bounds.push([best.lat, best.lon]);
+
+  map.fitBounds(bounds, { padding: [40, 40] });
+
+  document.getElementById('legend-origins').innerHTML = origins.map((o, i) =>
+    `<div class="legend-row">
+       <span class="legend-dot" style="background:${COLORS[i%COLORS.length]}"></span>
+       ${String.fromCharCode(65+i)}: ${o.name}
+     </div>`
+  ).join('');
+}
+
+// ── City management ──────────────────────────────────────────────────────────
+function addCity(value = '') {
+  const idx = cityCount++;
+  const color = COLORS[idx % COLORS.length];
+  const label = String.fromCharCode(65 + idx);
+  const placeholders = ['New York','Los Angeles','Chicago','Seattle','Miami','Boston','Dallas','Denver'];
+
+  const row = document.createElement('div');
+  row.className = 'city-row';
+  row.dataset.idx = idx;
+  row.innerHTML = `
+    <span class="city-dot" style="background:${color}"></span>
+    <input class="city-input" type="text"
+           placeholder="City ${label} (e.g. ${placeholders[idx] || 'City'})"
+           value="${value}"
+           onkeydown="if(event.key==='Enter')doSearch()">
+    <button class="city-remove" onclick="removeCity(this.parentElement)" title="Remove">✕</button>`;
+  document.getElementById('city-list').appendChild(row);
+  row.querySelector('input').focus();
+}
+
+function removeCity(row) {
+  const list = document.getElementById('city-list');
+  if (list.children.length <= 2) {
+    document.getElementById('status').textContent = 'Need at least 2 travelers.';
+    return;
+  }
+  list.removeChild(row);
+}
+
+function getCities() {
+  return [...document.querySelectorAll('.city-input')]
+    .map(i => i.value.trim()).filter(Boolean);
+}
+
+// ── Search ───────────────────────────────────────────────────────────────────
+async function doSearch() {
+  const cities = getCities();
+  if (cities.length < 2) {
+    document.getElementById('status').textContent = 'Enter at least 2 cities.';
+    return;
+  }
+  const btn = document.getElementById('search-btn');
+  btn.disabled = true;
+  document.getElementById('status').textContent = `Searching ${cities.length}-party meeting…`;
+
+  try {
+    const res = await fetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cities,
+        max_stops:       document.getElementById('max_stops').value,
+        depart_after_h:  document.getElementById('depart_after').value,
+        arrive_before_h: document.getElementById('arrive_before').value,
+        travel_date:     document.getElementById('travel_date').value,
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) { document.getElementById('status').textContent = '⚠ ' + data.error; return; }
+
+    const fareNote = data.using_real_fares ? ' · 💰 Real fares (Amadeus)' : '';
+    document.getElementById('status').textContent =
+      `${cities.length} travelers · ${data.top.length} candidates · Pareto: ${data.pareto.length}${fareNote}`;
+    const badge = document.getElementById('amadeus-badge');
+    if (data.amadeus_active) {
+      badge.style.display = 'inline';
+      badge.textContent = data.using_real_fares ? '✓ Real fares' : '✓ API ready';
+      badge.style.background = data.using_real_fares ? '#1a4a1a' : '#2a2a1a';
+      badge.style.color = data.using_real_fares ? '#44dd88' : '#ffd700';
+    }
+    document.getElementById('results').style.display = 'flex';
+
+    renderBestCard(data.best, data.origins);
+    renderParetoChart(data.pareto);
+    renderTimelineChart(data.top, data.origins);
+    renderCO2Chart(data.top, data.origins);
+    renderTable(data.top, data.best.airport);
+    renderMap(data);
+  } catch(e) {
+    document.getElementById('status').textContent = '⚠ ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+addCity('New York');
+addCity('Los Angeles');
+</script>
+</body>
+</html>

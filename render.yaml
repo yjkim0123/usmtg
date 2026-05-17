@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: usmtg
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --timeout 120 --workers 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      # Amadeus API keys (optional — app runs without them using ML fare estimates)
+      # - key: AMADEUS_KEY
+      #   value: your_key_here
+      # - key: AMADEUS_SECRET
+      #   value: your_secret_here
