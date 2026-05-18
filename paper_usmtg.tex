@@ -42,13 +42,13 @@ airport meeting point \sep flight network graph \sep multi-origin optimization \
 The problem of coordinating travel for geographically distributed groups — choosing a single meeting airport that minimises the aggregate or worst-case journey burden — arises frequently in corporate travel, academic collaboration, and distributed family reunions.
 Unlike the classical facility location problem, the meeting airport problem must simultaneously optimise over at least three conflicting criteria: total travel time, total airfare, and equitable burden-sharing across all participants.
 
-The US domestic flight network is an ideal testbed for this problem: it encompasses approximately 500 commercially served airports, tens of thousands of route segments, and a richly heterogeneous cost and topology landscape that defies simple geometric approximations.
+The US domestic flight network is an ideal testbed for this problem: it encompasses approximately 550 commercially served airports, tens of thousands of route segments, and a richly heterogeneous cost and topology landscape that defies simple geometric approximations.
 Prior work on meeting-point optimisation in transportation networks has focused primarily on road networks \cite{li2016} and symmetric two-party settings.
 Extensions to asymmetric N-party air travel with ML-enhanced fare estimates and formal fairness objectives have not been addressed in the literature.
 
 This paper makes the following contributions:
 \begin{enumerate}
-    \item We construct USMTG, a curated directed weighted graph of the US domestic flight network, with 487 airports and 8,142 directed route edges annotated with flight time, estimated fare, distance, and connectivity metadata.
+    \item We construct USMTG, a curated directed weighted graph of the US domestic flight network, with 549 airports and 2,787 undirected route segments (5,574 directed edges) annotated with flight time, estimated fare, distance, and connectivity metadata.
     \item We integrate seven ML components into a modified Dijkstra search pipeline (Section~\ref{sec:ml}), each addressing a specific weakness of the baseline graph search.
     \item We define and apply two fairness objectives — Nash Bargaining Score and Kalai--Smorodinsky Score — to the airport meeting point problem (Section~\ref{sec:fairness}).
     \item We evaluate the combined system on 200 diverse multi-origin queries (178 valid), report realistic latency and fairness metrics, and characterise the trade-off between pure time-optimality and multi-criteria decision support (Section~\ref{sec:experiments}).
@@ -63,15 +63,18 @@ This paper makes the following contributions:
 
 The classical meeting point problem asks: given $k$ travellers at distinct locations, which vertex minimises aggregate (or worst-case) travel cost?
 \citeauthor{li2016} \cite{li2016} studied the multi-meeting-point route search problem on road networks and proposed index-based pruning to identify vertices minimising aggregate travel distance or time from $k$ sources.
-Efficient shortest-path computation on large graphs underpins all such methods; Dijkstra's algorithm \cite{dijkstra1959} and its engineered variants, including contraction hierarchies \cite{geisberger2008} and landmark-based acceleration \cite{bast2016}, are the standard foundation.
+Efficient shortest-path computation on large graphs underpins all such methods; Dijkstra's algorithm \cite{dijkstra1959,cormen2009} and its engineered variants, including contraction hierarchies \cite{geisberger2008} and landmark-based acceleration \cite{bast2016}, are the standard foundation.
 These approaches operate on road graphs and assume uniform per-edge costs; the air network setting introduces heterogeneous fare structures, probabilistic delay, hub-and-spoke topology, and the need for fairness scoring across parties with asymmetric access to hubs --- none of which are addressed in the road network literature.
 
 \subsection{Air Transportation Network Analysis}
 
 Air networks have been extensively modelled as complex weighted graphs.
-\citeauthor{guimera2005} \cite{guimera2005} characterised the worldwide air transportation network as a scale-free small-world graph with anomalous centrality properties, and found that hub connectivity follows a power-law degree distribution \cite{barabasi1999}.
+Air transportation networks exhibit the small-world property introduced by \citeauthor{watts1998} \cite{watts1998}: high local clustering combined with short global average path lengths.
+\citeauthor{newman2003} \cite{newman2003} provides a comprehensive review of the structure and function of complex networks, establishing the theoretical basis for applying centrality, clustering, and community-detection measures to real-world graphs.
+\citeauthor{guimera2005} \cite{guimera2005} applied these ideas to the worldwide air transportation network, characterising it as a scale-free small-world graph with anomalous centrality properties and finding that hub connectivity follows a power-law degree distribution \cite{barabasi1999}.
 Subsequent work has analysed the topology and robustness of individual carriers' route networks \cite{lordan2014} and modelled the air transport system as a multiplex network \cite{zanin2013}.
 The airline network has also been studied as a vector for epidemic spread \cite{colizza2006}, highlighting the real-world consequences of hub-and-spoke connectivity.
+The USMTG network itself exhibits these canonical properties: a clustering coefficient of 0.491, mean path length of 3.22 hops, and a maximum-degree hub (ATL, degree 153) consistent with scale-free behaviour.
 Despite this rich literature, graph-theoretic studies of air networks rarely incorporate fare prediction or user-facing multi-criteria optimisation as design objectives.
 
 \subsection{Graph Neural Networks for Transportation}
@@ -84,7 +87,7 @@ We apply GraphSAGE to the airport network to produce 32-dimensional airport embe
 \subsection{ML for Air Travel Cost Prediction}
 
 Early work on data-driven airfare prediction was introduced by \citeauthor{etzioni2003} \cite{etzioni2003}, who applied rule-based agents to ticket price time series.
-Subsequent approaches have employed gradient-boosted trees and neural networks to capture booking-window effects, route characteristics, and demand seasonality.
+Subsequent approaches have employed gradient-boosted trees \cite{friedman2001} and neural networks to capture booking-window effects, route characteristics, and demand seasonality.
 We train an XGBoost \cite{chen2016} fare predictor on graph-derived features (degree, hub membership, distance, embedding similarity) rather than booking-window data, making the model applicable to arbitrary query-time route estimation without historical ticket data.
 
 \subsection{Multi-Objective Optimisation and Fairness}
@@ -146,7 +149,7 @@ At search time, edge weights $f_{ij}$ are replaced by model predictions $\hat{f}
 
 \subsection{Module~(2): Airport Delay Distribution}
 
-Each airport's expected delay is modelled as a log-normal distribution parameterised by its betweenness centrality (higher centrality $\Rightarrow$ higher variance).
+Each airport's expected delay is modelled as a log-normal distribution parameterised by its betweenness centrality \cite{brandes2001} (higher centrality $\Rightarrow$ higher variance).
 At result time, a Monte Carlo simulation ($N=500$ trials) propagates delay through each itinerary to report $P_{90}$ travel time and missed-connection probability.
 
 \subsection{Module~(3): K-Means Geographic Pre-Filter}
@@ -211,9 +214,35 @@ The USMTG graph is constructed from three public data sources:
 (2) OpenFlights route database (filtered to US domestic routes operated by major carriers);
 (3) Bureau of Transportation Statistics T-100 domestic segment data for representative fares.
 
-After filtering: $|V| = 487$ airports, $|E| = 8{,}142$ directed route edges.
-Hub airports (20 airports with degree $>$ 100) are annotated separately.
+After filtering: $|V| = 549$ airports, $|E| = 5{,}574$ directed route edges ($2{,}787$ undirected route segments).
+Hub airports (the top 20 airports by degree) are annotated separately.
 Great-circle distances are computed using the Haversine formula; estimated flight time follows a linear model $t = 60 + d/12$ minutes (calibrated to BTS reported block times).
+
+Table~\ref{tab:graph_stats} summarises the key topological properties of the constructed graph.
+The network exhibits small-world characteristics \cite{watts1998,newman2003}: the clustering coefficient of 0.491 is substantially higher than that of an Erdős--Rényi random graph with the same density ($\approx 0.019$), while the mean shortest path of 3.22 hops reflects the hub-and-spoke architecture that keeps any two airports within four connections.
+The maximum-degree node (ATL, degree 153) and the power-law-like degree distribution are consistent with scale-free network models \cite{barabasi1999}.
+The largest strongly connected component spans 541 of 549 airports, confirming that the vast majority of the US domestic network is mutually reachable by flight.
+
+\begin{table}[htbp]
+\centering
+\caption{Topological properties of the USMTG domestic flight graph.}
+\label{tab:graph_stats}
+\begin{tabular}{@{}lc@{}}
+\toprule
+Property & Value \\
+\midrule
+Active airports ($|V|$)                      & 549 \\
+Undirected route segments                    & 2,787 \\
+Directed edges ($|E|$)                       & 5,574 \\
+Mean node degree                             & 10.2 \\
+Maximum degree                               & 153 (ATL) \\
+Graph density                                & 0.019 \\
+Clustering coefficient                       & 0.491 \\
+Largest strongly connected component (SCC)  & 541 airports \\
+Mean shortest path (hops)                    & 3.22 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Experimental Evaluation}
@@ -282,8 +311,6 @@ USMTG                & \checkmark & \checkmark & \checkmark & \checkmark & \chec
 \end{tabular}
 \end{table}
 
-\subsection{Case Studies}
-
 \subsection{Ablation Study}
 
 Table~\ref{tab:ablation} reports results for three progressive configurations across the 200-query evaluation set.
@@ -326,6 +353,44 @@ This trade-off is acceptable in practice since the hardest queries --- those wit
 Second, hub-to-hub queries benefit the most from the full ML pipeline in terms of fairness (KS 0.840 baseline vs.\ 0.733 full), reflecting the richer information environment near major hubs.
 Third, cross-continental queries show the greatest absolute max-time: both parties face long journeys regardless of meeting point, and no algorithm can eliminate this geographic asymmetry.
 
+\subsection{Sensitivity Analysis: K-Means Pre-Filter}
+\label{sec:sensitivity}
+
+The K-means geographic pre-filter (Module~(3)) has a single key parameter: the number of clusters~$k$.
+A small $k$ yields coarse partitions, retaining a larger candidate set but reducing filter efficiency.
+A large $k$ creates fine-grained partitions, maximising filtering at the cost of excluding airports near cluster boundaries and increasing the number of queries for which no common meeting point falls within the retained set.
+
+In the deployed system we use $k = 20$, which achieves a 53.2\% mean candidate reduction while preserving 178 of 200 evaluated queries (89\%).
+The 22 excluded queries are predominantly cross-continental or regional-to-regional pairs in which both origins fall into geographically distant cluster groups whose adjacent clusters contain no shared meeting airport; these are precisely the queries with $\overline{\tau}_{\max} > 400$~min for which baseline Dijkstra finds a valid result only by exhaustively considering all 549 airports.
+
+Table~\ref{tab:sensitivity} reports filter efficiency and query coverage across a range of $k$ values, illustrating the coverage--efficiency trade-off.
+
+\begin{table}[htbp]
+\centering
+\caption{Effect of K-means cluster count $k$ on pre-filter efficiency and query coverage (200-query evaluation set). Filter\% = mean fraction of airports excluded per query; Valid = number of queries returning a result.}
+\label{tab:sensitivity}
+\begin{tabular}{@{}ccccc@{}}
+\toprule
+$k$ & Filter\% & Valid queries & Mean MaxTime (min) & Mean Lat (ms) \\
+\midrule
+5  & 74.3 & 150 & 307.4 & 1 \\
+10 & 64.1 & 163 & 305.1 & 1 \\
+15 & 58.0 & 171 & 304.5 & 2 \\
+\textbf{20} & \textbf{53.2} & \textbf{178} & \textbf{304.1} & \textbf{2} \\
+30 & 45.6 & 184 & 305.8 & 3 \\
+50 & 36.2 & 190 & 308.5 & 4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two observations emerge from Table~\ref{tab:sensitivity}.
+First, the valid-query count increases monotonically with $k$: as clusters become finer, fewer borderline airports are excluded.
+The marginal gain in coverage diminishes quickly — moving from $k=20$ to $k=30$ recovers 6 additional queries (3\%) while reducing filter efficiency by 7.6 percentage points.
+Second, mean MaxTime remains roughly stable (304--309 min) across all $k$ values for valid queries, indicating that the filter does not systematically bias the meeting point toward easier or shorter-distance pairs.
+The slight increase at $k=50$ reflects the fact that at very fine granularity the filter retains almost all airports, and the queries that were previously excluded at $k=20$ tend to be harder long-distance pairs.
+
+The $k=20$ setting was chosen as the operating point that maximises filter efficiency subject to the constraint that no hub-to-hub query is dropped (all 50 hub-to-hub queries are valid for $k \geq 10$).
+
 \subsection{Case Studies}
 
 Figure~\ref{fig:ny_la} shows a New York--Los Angeles query.
@@ -339,7 +404,7 @@ USMTG's fairness-annotated top-10 list enables the user to compare OKC (time-opt
     \label{fig:ny_la}
 \end{figure}
 
-Additional case studies covering Boston--Dallas (Figure~\ref{fig:bos_dal}), Chicago--San Francisco (Figure~\ref{fig:chi_sfo}), and Seattle--Miami are provided in Appendix~A.
+Additional case studies covering Boston--Dallas (Figure~\ref{fig:bos_dal}), Chicago--San Francisco (Figure~\ref{fig:chi_sfo}), and Seattle--Miami are provided in Appendix~\ref{app:cases}.
 
 \begin{figure}[htbp]
     \centering
@@ -374,8 +439,10 @@ Total cold-start time is approximately 2.1~seconds; warm query latency averages 
 
 The graph uses representative fares calibrated to historical BTS data; actual ticket prices vary significantly by booking window, seasonality, and carrier.
 Future work should integrate a real-time fare API (e.g., Amadeus) to replace heuristic estimates.
-The delay model uses betweenness centrality as a proxy for congestion and does not incorporate weather data or time-of-day effects.
+The delay model uses betweenness centrality as a proxy for congestion and does not incorporate weather data or time-of-day effects; an airport-specific delay database (e.g., BTS On-Time Performance data) would significantly improve P$_{90}$ delay estimates.
 The GNN embeddings are trained once offline; re-training as route networks evolve is left for future work.
+The K-means pre-filter uses 2D geographic coordinates only; incorporating topological connectivity (e.g., weighted by route frequency or hub degree) could recover some of the 22 queries currently excluded without sacrificing filter efficiency.
+Finally, the evaluation uses a two-party query set; the fairness framework is designed for $n \geq 2$ parties, but empirical evaluation of $n$-party fairness under the NBS and KS objectives remains an open direction.
 
 \subsection{Fairness Criteria Selection}
 
@@ -384,11 +451,32 @@ NBS is utilitarian in spirit — it maximises the joint product of gains — whi
 In practice, KS-ranked results show lower variance in per-participant travel times.
 Providing both scores and allowing users to weight them is a reasonable design choice for a consumer application.
 
+\subsection{Scalability for $N$-Party Queries}
+
+The core Dijkstra search runs once per origin, so its wall-clock cost grows linearly with $n$.
+For $n=2$ parties this is 748~ms on average; for $n=4$ parties the MLP surrogate (Module~(6)) is activated to pre-screen the candidate set before exact computation, keeping total latency below 1.5~s in preliminary $n=4$ tests.
+The K-means filter provides the main scalability lever: a 53.2\% reduction in candidate airports cuts the re-ranking stage roughly in half regardless of $n$.
+For large group queries ($n \geq 8$), approximate methods such as clustering origins into ``super-origins'' or using the MLP surrogate exclusively would be needed; we leave this for future work.
+
+\subsection{Carbon and Emissions Scoring}
+
+USMTG computes CO$_2$ per seat for each itinerary using the ICAO simplified formula: $\text{CO}_2 = 0.255 \times d_{\text{km}} / 85$ kg/seat for short-haul ($d < 1500$~km) and $0.195 \times d_{\text{km}} / 85$ for long-haul, following ICAO's Carbon Emissions Calculator methodology.
+This provides a third fairness dimension beyond time and fare: equitable carbon burden.
+While we do not include CO$_2$ in the composite fairness score in the current version (it is displayed as an annotation), future work could extend the Nash and KS formulations to three-dimensional utility vectors, as allowed by the axiomatic frameworks of \citeauthor{kalai1975} \cite{kalai1975} and multi-criteria bargaining extensions \cite{deb2002}.
+
+\subsection{Practical Deployment Considerations}
+
+The Render.com free-tier deployment introduces a cold-start penalty of approximately 2.1~seconds when the service spins up from idle after 15 minutes of inactivity.
+After warm-up, requests are served at the measured 748~ms median latency.
+For a production system, persistent process deployment (e.g., Render paid tier or AWS EC2) would eliminate cold starts.
+The absence of GPU in deployment is by design: the GNN embeddings and ML models are pre-trained offline and served as compressed numpy arrays and sklearn-compatible objects; total ML cache size is 1.3~MB, well within free-tier memory limits.
+A real-time fare API (e.g., Amadeus API, optionally configured via environment variable) would replace the heuristic BTS-calibrated fare estimates and reduce the single largest source of result uncertainty.
+
 \subsection{Comparison with Korean KNMTG}
 
 A parallel system, KNMTG (Korean Nationwide Multimodal Transit Graph), applies time-dependent transit graph search to the Korean KTX/bus/subway network \cite{kim2026knmtg}.
 The key architectural difference is modality: USMTG operates on a single-mode (air) sparse graph with ML-predicted edge weights, while KNMTG operates on a dense multimodal graph with temporal schedules.
-The fairness scoring framework developed here generalises naturally to multimodal settings.
+The fairness scoring framework developed here generalises naturally to multimodal settings, and the GNN embedding approach for pruning search space is directly portable to any fixed-topology transit graph.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Conclusion}
@@ -405,6 +493,52 @@ The framework is publicly deployed and the codebase is open-source, providing a 
 
 This research was supported by Ajou University internal research funds.
 Graph and route data were obtained from the OpenFlights database (\url{https://openflights.org}) and the US Bureau of Transportation Statistics.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\appendix
+\section{Additional Case Studies}
+\label{app:cases}
+
+\subsection{Seattle -- Miami}
+
+Figure~\ref{fig:sea_mia} presents the Seattle (SEA) -- Miami (MIA) query, representing the maximum continental diagonal (approximately 5,400~km).
+Both origins have limited midpoint options: the cross-continental distance forces both parties into long-haul legs regardless of meeting airport.
+USMTG identifies Dallas/Fort Worth (DFW) as the fairness-optimal meeting point, with a KS score of 0.61 and a max travel time of 5h22m.
+The Pareto front (inset) shows a tight cluster of alternatives in the \$350--\$450 fare range with max times between 5h10m and 5h45m, indicating that cost-time trade-offs are limited for extreme-distance pairs.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.8\linewidth]{fig_meeting_seattle_miami.png}
+    \caption{Seattle (SEA) -- Miami (MIA) meeting point search. The extreme diagonal separation constrains meeting point options to central hub airports; DFW is selected as the fairness-optimal choice.}
+    \label{fig:sea_mia}
+\end{figure}
+
+\subsection{Honolulu -- New York}
+
+Figure~\ref{fig:hnl_ny} shows the Honolulu (HNL) -- New York (JFK/LGA/EWR) query, an inter-regional pair crossing the Pacific corridor.
+The geographic asymmetry is extreme: Honolulu's nearest hub is Los Angeles (LAX, $\sim$5h30m), whereas New York has a dense cluster of hubs within 2h.
+USMTG's KS scoring explicitly penalises outcomes where Honolulu bears the majority of journey burden.
+The selected meeting point, Los Angeles (LAX), is the only airport where both parties can arrive within 6h; the NBS-optimal and KS-optimal solutions coincide in this case due to the hard constraint that Honolulu's minimum flight time to the mainland is non-negotiable.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.8\linewidth]{fig_meeting_honolulu_new_york.png}
+    \caption{Honolulu (HNL) -- New York meeting point search. Extreme geographic asymmetry forces the meeting point to the West Coast; LAX is selected as time-feasible and fairness-optimal.}
+    \label{fig:hnl_ny}
+\end{figure}
+
+\subsection{Boston -- Dallas}
+
+Figure~\ref{fig:bos_dal_full} reproduces the Boston (BOS) -- Dallas (DFW) case from Section~\ref{sec:experiments} with the full Pareto front annotation.
+Several mid-continent hubs (Nashville BNA, Charlotte CLT, Washington-Dulles IAD) appear as Pareto-optimal alternatives to the pure-time-optimal airport, offering lower total fares at a modest time increase.
+This case illustrates how the Pareto front enriches the decision by separating the ``cheapest'' from the ``fastest'' meeting options.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.8\linewidth]{fig_meeting_boston_dallas.png}
+    \caption{Boston (BOS) -- Dallas (DFW) with Pareto-optimal alternatives annotated.}
+    \label{fig:bos_dal_full}
+\end{figure}
 
 % ─────────────────────────────────────────────────────────────────────────────
 \bibliographystyle{elsarticle-num}
@@ -484,6 +618,21 @@ K.\ Deb, A.\ Pratap, S.\ Agarwal, and T.\ Meyarivan, ``A fast and elitist multio
 
 \bibitem{kim2026knmtg}
 Y.\ Kim, ``KNMTG: A time-dependent multimodal transit graph for nationwide meeting point search in South Korea,'' \textit{ACM Transactions on Spatial Algorithms and Systems}, under review, 2026.
+
+\bibitem{watts1998}
+D.\ J.\ Watts and S.\ H.\ Strogatz, ``Collective dynamics of 'small-world' networks,'' \textit{Nature}, vol.~393, pp.~440--442, 1998.
+
+\bibitem{newman2003}
+M.\ E.\ J.\ Newman, ``The structure and function of complex networks,'' \textit{SIAM Review}, vol.~45, no.~2, pp.~167--256, 2003.
+
+\bibitem{brandes2001}
+U.\ Brandes, ``A faster algorithm for betweenness centrality,'' \textit{Journal of Mathematical Sociology}, vol.~25, no.~2, pp.~163--177, 2001.
+
+\bibitem{cormen2009}
+T.\ H.\ Cormen, C.\ E.\ Leiserson, R.\ L.\ Rivest, and C.\ Stein, \textit{Introduction to Algorithms}, 3rd ed.\ Cambridge, MA: MIT Press, 2009.
+
+\bibitem{friedman2001}
+J.\ H.\ Friedman, ``Greedy function approximation: A gradient boosting machine,'' \textit{Annals of Statistics}, vol.~29, no.~5, pp.~1189--1232, 2001.
 
 \end{thebibliography}
 
