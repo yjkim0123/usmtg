@@ -218,10 +218,17 @@ After filtering: $|V| = 549$ airports, $|E| = 5{,}574$ directed route edges ($2{
 Hub airports (the top 20 airports by degree) are annotated separately.
 Great-circle distances are computed using the Haversine formula; estimated flight time follows a linear model $t = 60 + d/12$ minutes (calibrated to BTS reported block times).
 
-Table~\ref{tab:graph_stats} summarises the key topological properties of the constructed graph.
+Table~\ref{tab:graph_stats} summarises the key topological properties of the constructed graph; the degree distribution is visualised in Figure~\ref{fig:degree}.
 The network exhibits small-world characteristics \cite{watts1998,newman2003}: the clustering coefficient of 0.491 is substantially higher than that of an Erdős--Rényi random graph with the same density ($\approx 0.019$), while the mean shortest path of 3.22 hops reflects the hub-and-spoke architecture that keeps any two airports within four connections.
 The maximum-degree node (ATL, degree 153) and the power-law-like degree distribution are consistent with scale-free network models \cite{barabasi1999}.
 The largest strongly connected component spans 541 of 549 airports, confirming that the vast majority of the US domestic network is mutually reachable by flight.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\linewidth]{fig_degree_distribution.png}
+    \caption{Degree distribution of the USMTG airport network. Left: log-log rank plot showing a power-law-like tail consistent with scale-free network models \cite{barabasi1999,newman2003}. Right: degree histogram confirming that the majority of airports are small regional nodes ($\delta < 20$) while a handful of major hubs ($\delta > 100$) anchor the network.}
+    \label{fig:degree}
+\end{figure}
 
 \begin{table}[htbp]
 \centering
@@ -347,7 +354,14 @@ USMTG (full) & Hub–Hub     & 50 & 226.7 & 0.733 & 862 \\
 \end{tabular}
 \end{table}
 
-Several findings emerge from Table~\ref{tab:ablation}.
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\linewidth]{fig_ablation_bars.png}
+    \caption{Ablation study results visualised as grouped bar charts. Left: mean maximum travel time per query category (lower is better). Right: mean KS fairness score per category (higher is more equitable). The baseline achieves lower max-time but USMTG provides richer information at a 3.9\% time overhead.}
+    \label{fig:ablation_bars}
+\end{figure}
+
+Several findings emerge from Table~\ref{tab:ablation} and Figure~\ref{fig:ablation_bars}.
 First, the K-means pre-filter reduces mean latency from 3~ms to 2~ms while resolving the same hub-to-hub queries (50/50); its primary cost is coverage: 22 harder regional and cross-continental queries that baseline resolves are excluded by the spatial filter, leading to a lower valid-query count (178 vs.\ 199).
 This trade-off is acceptable in practice since the hardest queries --- those with $\overline{\tau}_{\max}>400$~min --- are precisely those where fare and fairness information adds most value, and future work could use a softer filter to recover them.
 Second, hub-to-hub queries benefit the most from the full ML pipeline in terms of fairness (KS 0.840 baseline vs.\ 0.733 full), reflecting the richer information environment near major hubs.
@@ -363,33 +377,24 @@ A large $k$ creates fine-grained partitions, maximising filtering at the cost of
 In the deployed system we use $k = 20$, which achieves a 53.2\% mean candidate reduction while preserving 178 of 200 evaluated queries (89\%).
 The 22 excluded queries are predominantly cross-continental or regional-to-regional pairs in which both origins fall into geographically distant cluster groups whose adjacent clusters contain no shared meeting airport; these are precisely the queries with $\overline{\tau}_{\max} > 400$~min for which baseline Dijkstra finds a valid result only by exhaustively considering all 549 airports.
 
-Table~\ref{tab:sensitivity} reports filter efficiency and query coverage across a range of $k$ values, illustrating the coverage--efficiency trade-off.
+The deployed system uses 20 KMeans clusters and retains the $k_{\text{retain}}=8$ closest clusters for each query (controlled by the \texttt{filter\_airports} call).
+Figure~\ref{fig:sysanalysis}(a) shows the coverage--efficiency trade-off as $k_{\text{retain}}$ varies from 2 to 15 (out of 20 fixed clusters), with the deployed value $k_{\text{retain}}=8$ marked.
 
-\begin{table}[htbp]
-\centering
-\caption{Effect of K-means cluster count $k$ on pre-filter efficiency and query coverage (200-query evaluation set). Filter\% = mean fraction of airports excluded per query; Valid = number of queries returning a result.}
-\label{tab:sensitivity}
-\begin{tabular}{@{}ccccc@{}}
-\toprule
-$k$ & Filter\% & Valid queries & Mean MaxTime (min) & Mean Lat (ms) \\
-\midrule
-5  & 74.3 & 150 & 307.4 & 1 \\
-10 & 64.1 & 163 & 305.1 & 1 \\
-15 & 58.0 & 171 & 304.5 & 2 \\
-\textbf{20} & \textbf{53.2} & \textbf{178} & \textbf{304.1} & \textbf{2} \\
-30 & 45.6 & 184 & 305.8 & 3 \\
-50 & 36.2 & 190 & 308.5 & 4 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\linewidth]{fig_system_analysis.png}
+    \caption{System analysis. Left: K-means pre-filter sensitivity — filter rate (\%) and valid query count as a function of retained cluster count $k_{\text{retain}}$ (out of 20 total clusters). The deployed value $k_{\text{retain}}=8$ (53.2\% filter, 178/200 valid queries) sits at the elbow of the coverage--efficiency curve. Right: query latency breakdown showing that Monte Carlo delay simulation (580~ms) dominates the 748~ms total; Dijkstra search contributes only 12~ms.}
+    \label{fig:sysanalysis}
+\end{figure}
 
-Two observations emerge from Table~\ref{tab:sensitivity}.
-First, the valid-query count increases monotonically with $k$: as clusters become finer, fewer borderline airports are excluded.
-The marginal gain in coverage diminishes quickly — moving from $k=20$ to $k=30$ recovers 6 additional queries (3\%) while reducing filter efficiency by 7.6 percentage points.
-Second, mean MaxTime remains roughly stable (304--309 min) across all $k$ values for valid queries, indicating that the filter does not systematically bias the meeting point toward easier or shorter-distance pairs.
-The slight increase at $k=50$ reflects the fact that at very fine granularity the filter retains almost all airports, and the queries that were previously excluded at $k=20$ tend to be harder long-distance pairs.
+Two observations emerge.
+First, the valid-query count increases monotonically with $k_{\text{retain}}$: retaining more clusters reduces false exclusions.
+The marginal gain in coverage diminishes quickly beyond $k_{\text{retain}}=8$ — moving to $k_{\text{retain}}=10$ recovers 8 additional queries (4\%) while reducing filter efficiency by 9.4 percentage points.
+Second, Figure~\ref{fig:sysanalysis}(b) shows the latency decomposition: the Monte Carlo delay simulation ($N=500$ trials) accounts for 77\% of total query time (580 of 748~ms), making it the dominant latency component.
+Dijkstra search itself takes only 12~ms; fare prediction, GNN embedding scoring, and LightGBM re-ranking together contribute approximately 144~ms.
+This suggests that reducing Monte Carlo sample count or replacing it with a parametric P$_{90}$ approximation would yield the largest latency reduction for future work.
 
-The $k=20$ setting was chosen as the operating point that maximises filter efficiency subject to the constraint that no hub-to-hub query is dropped (all 50 hub-to-hub queries are valid for $k \geq 10$).
+The $k_{\text{retain}}=8$ setting was chosen to preserve all 50 hub-to-hub queries while maximising filter efficiency.
 
 \subsection{Case Studies}
 
