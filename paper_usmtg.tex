@@ -333,7 +333,7 @@ USMTG's fairness-annotated top-10 list enables the user to compare OKC (time-opt
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.8\linewidth]{fig_meeting_new_york_los_angeles.png}
-    \caption{New York (JFK) -- Los Angeles (LAX) meeting point selection. Left: time-optimal (ORD). Right: KS-optimal (DEN). Node size indicates degree; edge thickness indicates query route.}
+    \caption{New York -- Los Angeles meeting point search. Star: selected meeting airport (Oklahoma City, OKC). Red/blue circles: origins. Green diamonds: Pareto-optimal alternatives. Right inset: Pareto front (max travel time vs.\ total fare).}
     \label{fig:ny_la}
 \end{figure}
 
@@ -362,7 +362,7 @@ The front end accepts geographic coordinates or city names for up to four origin
 Each result card displays maximum travel time, total estimated fare, CO$_2$ emissions (kg per seat, following ICAO methodology), KS score, and a per-traveller itinerary breakdown.
 
 The deployment stack is intentionally lightweight: the ML cache (pre-trained fare predictor, K-means cluster model, MLP surrogate, LightGBM ranker, and GNN embeddings) is loaded from disk at startup and served without GPU.
-Total cold-start time is approximately 2.1~seconds; warm query latency is under 600~ms for two-party queries.
+Total cold-start time is approximately 2.1~seconds; warm query latency averages 748~ms for two-party queries (measured on Apple M4 Pro, single CPU core).
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Discussion}
