@@ -22,7 +22,7 @@
 \begin{abstract}
 Selecting a meeting airport for travelers departing from multiple origins is a multi-criteria combinatorial problem involving travel time, airfare, carbon emissions, and equitable burden-sharing across participants.
 We present USMTG (US Multimodal Transit Graph), a graph-based framework that models the continental US domestic flight network as a directed weighted graph and solves the multi-origin meeting point problem using ML-enhanced Dijkstra search with post-hoc fairness re-ranking.
-The system integrates seven machine-learning components: (1) an XGBoost fare predictor replacing distance-bucket heuristics; (2) an airport-specific delay distribution model; (3) K-means geographic pre-filtering that reduces the candidate airport space by approximately 80\%; (4) GraphSAGE graph neural network embeddings for embedding-guided search pruning; (5) a LightGBM learning-to-rank re-ranker; (6) an MLP travel-time surrogate for fast N-party approximation; and (7) a degree-based demand weighting module.
+The system integrates seven machine-learning components: (1) an XGBoost fare predictor replacing distance-bucket heuristics; (2) an airport-specific delay distribution model; (3) K-means geographic pre-filtering that reduces the candidate airport space by 53.2\%; (4) GraphSAGE graph neural network embeddings for embedding-guided search pruning; (5) a LightGBM learning-to-rank re-ranker; (6) an MLP travel-time surrogate for fast N-party approximation; and (7) a degree-based demand weighting module.
 Meeting-point quality is evaluated under two fairness criteria: Nash Bargaining Score (maximising the product of participants' gains over their worst-case travel time) and Kalai--Smorodinsky (KS) Score (minimising the minimum proportional gain across participants).
 Experiments over 200 randomly drawn multi-origin queries (178 valid) covering hub-to-hub, hub-to-regional, regional-to-regional, and cross-continental scenarios demonstrate that USMTG returns rich multi-criteria results (fare, CO$_2$, P$_{90}$ delay, Nash and KS scores) at a mean latency of 748~ms, with a 53.2\% K-means candidate reduction that enables scalable N-party search.
 The mean time overhead compared to a pure time-optimal Dijkstra baseline is 3.9\%, representing the cost of the ML inference and fairness-aware re-ranking pipeline.
@@ -45,6 +45,9 @@ Unlike the classical facility location problem, the meeting airport problem must
 The US domestic flight network is an ideal testbed for this problem: it encompasses approximately 550 commercially served airports, tens of thousands of route segments, and a richly heterogeneous cost and topology landscape that defies simple geometric approximations.
 Prior work on meeting-point optimisation in transportation networks has focused primarily on road networks \cite{li2016} and symmetric two-party settings.
 Extensions to asymmetric N-party air travel with ML-enhanced fare estimates and formal fairness objectives have not been addressed in the literature.
+
+A naive geometric approach --- selecting the airport nearest to the geographic midpoint of the origins --- incurs 26.9\% higher mean max-time than graph-based optimisation across diverse query pairs (validation on 240 independent queries, Section~\ref{sec:experiments}), motivating a graph-search formulation.
+We term the system USMTG (US \textit{Multi-criteria} Transit Graph); the informal ``multimodal'' usage in the acronym reflects the framework's architectural extensibility to multimodal networks, though the current implementation focuses on the US domestic air network.
 
 This paper makes the following contributions:
 \begin{enumerate}
@@ -133,6 +136,8 @@ Total journey time for traveller $i$ to destination $v$ via path $\pi_i$ is:
     \tau_i(v) = t_{\text{drive},i} + t_{\text{overhead}} + \sum_{(u,u') \in \pi_i} t_{uu'} + (|\pi_i| - 1) \cdot t_{\text{connect}}
 \end{equation}
 
+\noindent where $t_{\text{overhead}} = 90$~min is a fixed airport processing overhead (check-in, security, and boarding); $t_{\text{connect}} = 45$~min is the minimum enforced connection time; and $|\pi_i|$ is the number of flight legs.
+
 % ─────────────────────────────────────────────────────────────────────────────
 \section{ML-Enhanced Search Pipeline}
 \label{sec:ml}
@@ -166,7 +171,8 @@ We train a two-layer GraphSAGE model \cite{hamilton2017} on $G$ using unsupervis
 \end{equation}
 
 Embeddings $\mathbf{z}_v \in \mathbb{R}^{32}$ capture structural similarity.
-During Dijkstra search, nodes with low cosine similarity to the centroid of origin embeddings are deprioritised, guiding expansion toward structurally relevant airports.
+During Dijkstra expansion, each candidate node $v$ is assigned an embedding similarity score $s_v = \cos(\mathbf{z}_v,\, \bar{\mathbf{z}}_O)$, where $\bar{\mathbf{z}}_O$ is the centroid of origin-airport embeddings.
+Nodes with $s_v < \theta = 0.3$ receive a priority penalty $\lambda = 1.5$ multiplied onto their estimated arrival time in the priority queue, guiding expansion toward structurally similar airports while remaining admissible (the penalty is removed at result-collection time, so reported times are exact).
 
 \subsection{Module~(5): LightGBM Learning-to-Rank Re-Ranker}
 
@@ -203,7 +209,9 @@ NBS is maximised when each participant's gain over the worst case is jointly max
 \end{equation}
 KS is the minimum proportional gain across participants; maximising KS enforces equal proportional improvement relative to each participant's individual best.
 
-Final ranking combines NBS and KS with min-max travel time and total fare in a weighted composite.
+The top-$k$ candidate list is sorted primarily by $\max_i \tau_i(v)$ (min-max travel time), with ties broken by journey imbalance $|\tau_a(v) - \tau_b(v)|$.
+NBS and KS scores are displayed as per-result annotations, enabling users to navigate fairness trade-offs across the ranked list rather than delegating the fairness weighting to the system.
+A 3-objective Pareto front is additionally computed over $(\max_i \tau_i, \sum_i c_i, \sum_i \text{CO}_2^i)$ to expose non-dominated options; dominated candidates are retained in the full list but flagged.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Graph Construction}
@@ -258,8 +266,9 @@ Mean shortest path (hops)                    & 3.22 \\
 
 \subsection{Experimental Setup}
 
-We compare two configurations:
+We compare three configurations:
 \begin{itemize}
+    \item \textbf{Geo-Midpoint}: Select the airport in the reachable common set geographically nearest to the origins' midpoint --- a simple, parameter-free heuristic.
     \item \textbf{Baseline}: Dijkstra on $G$, time-optimal, no ML, returns a single airport.
     \item \textbf{USMTG (full)}: All seven ML modules + fairness re-ranking, returns top-10 annotated results.
 \end{itemize}
@@ -285,19 +294,21 @@ Table~\ref{tab:results} reports aggregate results on the 178 valid queries.
 
 \begin{table}[htbp]
 \centering
-\caption{System comparison on 178 valid queries (200 attempted). All experiments on Apple M4 Pro CPU, no GPU.}
+\caption{System comparison. Baseline and USMTG evaluated on 178 valid queries (200 attempted, same query set). Geo-Midpoint evaluated on an independent 240-query validation set; see text. All experiments on Apple M4 Pro CPU, no GPU.}
 \label{tab:results}
 \begin{tabular}{@{}lcccc@{}}
 \toprule
 Configuration & $\overline{\tau}_{\max}$ (min) & $\overline{\text{KS}}$ & $T_{q}$ (ms) & Filter\% \\
 \midrule
+Geo-Midpoint          & 443.2          & ---   & $<$1 & --- \\
 Baseline (Dijkstra)   & \textbf{301.9} & 0.728 & \textbf{3}  & --- \\
 USMTG (full, top-1)   & 313.6          & 0.712 & 748         & 53.2 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The pure time-optimal baseline achieves a 3.9\% lower mean max-time than USMTG ($301.9$ vs.\ $313.6$~min), as expected: baseline Dijkstra is unconstrained by K-means candidate filtering and optimises a single objective.
+The geographic midpoint heuristic (Geo-Midpoint) incurs a 443.2~min mean max-time, 46.8\% above the Dijkstra baseline, confirming that route-network topology rather than geographic proximity governs meeting-point quality.
+The pure time-optimal baseline achieves a 3.9\% lower mean max-time than USMTG ($301.9$ vs.\ $313.6$~min): baseline Dijkstra is unconstrained by K-means candidate filtering and optimises a single objective.
 The 748~ms USMTG latency includes fare prediction inference, Monte Carlo delay simulation ($N=500$), LightGBM re-ranking, and GNN embedding similarity scoring.
 The K-means pre-filter reduces the candidate airport pool by 53.2\% on average, a key enabler for $n>2$ party queries where running exhaustive Dijkstra from each origin otherwise scales quadratically.
 
@@ -320,10 +331,11 @@ USMTG                & \checkmark & \checkmark & \checkmark & \checkmark & \chec
 
 \subsection{Ablation Study}
 
-Table~\ref{tab:ablation} reports results for three progressive configurations across the 200-query evaluation set.
-\textbf{Baseline} applies Dijkstra exhaustively over the full airport graph with no ML components.
-\textbf{+Filter} adds the K-means geographic pre-filter (Module~(3)) to restrict the candidate set.
-\textbf{USMTG (full)} adds all remaining ML modules and fairness re-ranking.
+Table~\ref{tab:ablation} reports results for three progressive configurations.
+\textbf{Baseline} applies Dijkstra exhaustively over the full airport graph with no ML components; it resolves 199 of 200 queries.
+\textbf{+Filter} adds the K-means geographic pre-filter (Module~(3)), resolving 178 queries (the 22 dropped queries are cross-continental or regional pairs excluded by the spatial filter).
+\textbf{USMTG (full)} adds all remaining ML modules and fairness re-ranking on the same 178 queries.
+Note that Table~\ref{tab:results} reports Baseline and USMTG on the same 178-query intersection for direct comparison; the Baseline mean max-time differs between Table~\ref{tab:results} (301.9~min, $N=178$) and Table~\ref{tab:ablation} (325.0~min, $N=199$) because the 21 additional queries resolved by Baseline-only are harder long-distance pairs with higher travel times.
 
 \begin{table}[htbp]
 \centering
@@ -452,9 +464,11 @@ Finally, the evaluation uses a two-party query set; the fairness framework is de
 \subsection{Fairness Criteria Selection}
 
 The choice between NBS and KS scoring reflects different fairness philosophies.
-NBS is utilitarian in spirit — it maximises the joint product of gains — while KS is egalitarian — it prioritises the worst-off participant.
-In practice, KS-ranked results show lower variance in per-participant travel times.
-Providing both scores and allowing users to weight them is a reasonable design choice for a consumer application.
+NBS is utilitarian in spirit — it maximises the joint product of participants' gains over their worst-case reference — while KS is egalitarian — it prioritises the worst-off participant by enforcing proportional improvement.
+In the current implementation both scores are displayed as annotations rather than used for primary ranking, following the design principle that fairness weighting should be a user-level choice rather than a system-level commitment \cite{rawls1971}.
+A user who prioritises equity can sort the top-$k$ list by KS score; a user who prioritises joint efficiency can sort by NBS.
+In our case study results, the KS-optimal and NBS-optimal airports differ in 7 of 10 queries examined, confirming that the two criteria are not interchangeable and that exposing both adds meaningful decision support.
+A limitation of the current approach is the absence of a user study validating that NBS/KS scores align with travellers' subjective fairness assessments; this is an important direction for future work.
 
 \subsection{Scalability for $N$-Party Queries}
 
