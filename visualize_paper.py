@@ -1,6 +1,6 @@
 """
 Paper-quality figures: white background, high contrast, suitable for print.
-Regenerates all meeting-point figures and the hub map.
+Each meeting-point figure auto-zooms to the relevant geographic region.
 """
 import json, math, os, sys
 sys.path.insert(0, '.')
@@ -10,6 +10,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.patheffects as pe
 import numpy as np
 from collections import defaultdict
 from meeting_finder_v2 import load, resolve_location, find_meeting_v2, fmt_time
@@ -24,26 +25,43 @@ plt.rcParams.update({
     'figure.dpi': 150,
 })
 
-LAND_COLOR   = '#f5f5f0'
-OCEAN_COLOR  = '#dce8f5'
-ROUTE_COLOR  = '#b0c4de'
-SMALL_COLOR  = '#9ecae1'
+LAND_COLOR     = '#f5f5f0'
+OCEAN_COLOR    = '#dce8f5'
+ROUTE_COLOR    = '#b0c4de'
+SMALL_COLOR    = '#9ecae1'
 REGIONAL_COLOR = '#4292c6'
-HUB_COLOR    = '#08519c'
+HUB_COLOR      = '#08519c'
 ORIGIN_A_COLOR = '#d73027'
 ORIGIN_B_COLOR = '#4575b4'
-BEST_COLOR   = '#f59b00'
-ALT_COLOR    = '#74c476'
+BEST_COLOR     = '#f59b00'
+ALT_COLOR      = '#74c476'
 
 
-def draw_us_outline(ax):
-    """Draw a simple lat/lon box for CONUS context."""
+def draw_map_region(ax, lon_min, lon_max, lat_min, lat_max):
+    """Draw land/ocean background clipped to a region."""
     ax.set_facecolor(OCEAN_COLOR)
-    ax.axhspan(23, 50, xmin=0, xmax=1, color=LAND_COLOR, zorder=0)
-    ax.set_xlim(-128, -65)
-    ax.set_ylim(23, 50)
+    ax.axhspan(lat_min, lat_max, xmin=0, xmax=1, color=LAND_COLOR, zorder=0)
+    ax.set_xlim(lon_min, lon_max)
+    ax.set_ylim(lat_min, lat_max)
     ax.set_xlabel('Longitude', fontsize=8)
     ax.set_ylabel('Latitude', fontsize=8)
+
+
+def compute_zoom(loc_a, loc_b, best, pareto, padding_frac=0.30, min_span_lon=12, min_span_lat=8):
+    """Compute a tight bounding box around origins + meeting points."""
+    lons = [loc_a[1], loc_b[1], best['lon']] + [r['lon'] for r in pareto]
+    lats = [loc_a[0], loc_b[0], best['lat']] + [r['lat'] for r in pareto]
+
+    lon_span = max(max(lons) - min(lons), min_span_lon)
+    lat_span = max(max(lats) - min(lats), min_span_lat)
+    pad_lon  = lon_span * padding_frac
+    pad_lat  = lat_span * padding_frac
+
+    lon_min = max(-175, min(lons) - pad_lon)
+    lon_max = min(-60,  max(lons) + pad_lon)
+    lat_min = max(15,   min(lats) - pad_lat)
+    lat_max = min(72,   max(lats) + pad_lat)
+    return lon_min, lon_max, lat_min, lat_max
 
 
 def plot_hub_map(airports, graph, save_path='fig_us_hub_map.png'):
@@ -52,9 +70,8 @@ def plot_hub_map(airports, graph, save_path='fig_us_hub_map.png'):
         degree[src] += len(nbrs)
 
     fig, ax = plt.subplots(figsize=(14, 8))
-    draw_us_outline(ax)
+    draw_map_region(ax, -128, -65, 23, 50)
 
-    # Background routes (top hubs only for readability)
     top_iatas = {iata for iata, _ in sorted(degree.items(), key=lambda x: -x[1])[:80]}
     plotted = set()
     for src, nbrs in graph.items():
@@ -114,89 +131,119 @@ def plot_meeting(loc_a, name_a, loc_b, name_b,
                  best, top5, pareto, airports,
                  save_path='fig_meeting_result.png'):
 
+    # Auto-zoom to the region of interest
+    lon_min, lon_max, lat_min, lat_max = compute_zoom(loc_a, loc_b, best, pareto)
+
     fig = plt.figure(figsize=(14, 8))
     ax   = fig.add_axes([0.0, 0.0, 0.72, 1.0])
     ax_p = fig.add_axes([0.75, 0.15, 0.23, 0.68])
 
-    # Map background
-    draw_us_outline(ax)
+    # Map background clipped to zoom region
+    draw_map_region(ax, lon_min, lon_max, lat_min, lat_max)
 
-    # Background airports
+    # Background airports within view
     bg_lons = [ap['lon'] for ap in airports.values()
-               if -128 < ap['lon'] < -65 and 23 < ap['lat'] < 50]
+               if lon_min <= ap['lon'] <= lon_max and lat_min <= ap['lat'] <= lat_max]
     bg_lats = [ap['lat'] for ap in airports.values()
-               if -128 < ap['lon'] < -65 and 23 < ap['lat'] < 50]
-    ax.scatter(bg_lons, bg_lats, s=3, c='#aaaaaa', alpha=0.35, zorder=1)
+               if lon_min <= ap['lon'] <= lon_max and lat_min <= ap['lat'] <= lat_max]
+    ax.scatter(bg_lons, bg_lats, s=5, c='#aaaaaa', alpha=0.4, zorder=1)
 
     # Pareto alternatives
     pareto_iatas = {r['airport'] for r in pareto}
     for r in pareto:
         if r['airport'] == best['airport']: continue
-        ax.scatter(r['lon'], r['lat'], s=100, c=ALT_COLOR, zorder=4,
-                   marker='D', edgecolors='#333', linewidths=0.6)
+        ax.scatter(r['lon'], r['lat'], s=120, c=ALT_COLOR, zorder=4,
+                   marker='D', edgecolors='#333', linewidths=0.7)
         ax.annotate(f"{r['airport']}", (r['lon'], r['lat']),
-                    color='#333', fontsize=7,
-                    xytext=(5, 4), textcoords='offset points', zorder=5)
+                    color='#333', fontsize=8,
+                    xytext=(6, 4), textcoords='offset points', zorder=5,
+                    path_effects=[pe.withStroke(linewidth=2, foreground='white')])
 
     # Other top results
     for r in top5[1:5]:
         if r['airport'] in pareto_iatas or r['airport'] == best['airport']: continue
-        ax.scatter(r['lon'], r['lat'], s=35, c='#bbbbbb', zorder=3,
+        if not (lon_min <= r['lon'] <= lon_max and lat_min <= r['lat'] <= lat_max): continue
+        ax.scatter(r['lon'], r['lat'], s=40, c='#cccccc', zorder=3,
                    marker='o', edgecolors='#888', linewidths=0.4)
 
-    # Best meeting point
+    # Best meeting point — prominent star
     blon, blat = best['lon'], best['lat']
-    ax.scatter(blon, blat, s=350, c=BEST_COLOR, zorder=6, marker='*',
-               edgecolors='#333', linewidths=0.8)
+    ax.scatter(blon, blat, s=450, c=BEST_COLOR, zorder=6, marker='*',
+               edgecolors='#333', linewidths=1.0)
 
     label = (f"★ {best['airport']} — {best['city']}\n"
              f"A: {fmt_time(best['time_a_min'])}  ${best['fare_a_usd']}\n"
              f"B: {fmt_time(best['time_b_min'])}  ${best['fare_b_usd']}\n"
              f"Max: {fmt_time(best['max_time_min'])}  Total: ${best['total_cost_usd']}")
     ax.annotate(label, (blon, blat), color='#111', fontsize=8,
-                fontweight='bold', xytext=(12, 10),
+                fontweight='bold', xytext=(14, 12),
                 textcoords='offset points',
                 bbox=dict(boxstyle='round,pad=0.4', fc='#fffde7',
                           ec=BEST_COLOR, alpha=0.95, lw=1.5),
                 zorder=8)
 
-    # Origins
-    ax.scatter(loc_a[1], loc_a[0], s=180, c=ORIGIN_A_COLOR, zorder=5,
-               marker='o', edgecolors='white', linewidths=1.0)
+    # Origins — larger, with name labels using stroke for readability
+    ax.scatter(loc_a[1], loc_a[0], s=220, c=ORIGIN_A_COLOR, zorder=5,
+               marker='o', edgecolors='white', linewidths=1.2)
     ax.annotate(name_a, (loc_a[1], loc_a[0]), color=ORIGIN_A_COLOR,
-                fontsize=9, fontweight='bold',
-                xytext=(-5, 10), textcoords='offset points')
+                fontsize=10, fontweight='bold',
+                xytext=(-6, 12), textcoords='offset points', zorder=7,
+                path_effects=[pe.withStroke(linewidth=2.5, foreground='white')])
 
-    ax.scatter(loc_b[1], loc_b[0], s=180, c=ORIGIN_B_COLOR, zorder=5,
-               marker='o', edgecolors='white', linewidths=1.0)
+    ax.scatter(loc_b[1], loc_b[0], s=220, c=ORIGIN_B_COLOR, zorder=5,
+               marker='o', edgecolors='white', linewidths=1.2)
     ax.annotate(name_b, (loc_b[1], loc_b[0]), color=ORIGIN_B_COLOR,
-                fontsize=9, fontweight='bold',
-                xytext=(-5, 10), textcoords='offset points')
+                fontsize=10, fontweight='bold',
+                xytext=(-6, 12), textcoords='offset points', zorder=7,
+                path_effects=[pe.withStroke(linewidth=2.5, foreground='white')])
 
-    # Travel lines
-    ax.plot([loc_a[1], blon], [loc_a[0], blat],
-            '--', c=ORIGIN_A_COLOR, lw=2.0, alpha=0.8, zorder=4)
-    ax.plot([loc_b[1], blon], [loc_b[0], blat],
-            '--', c=ORIGIN_B_COLOR, lw=2.0, alpha=0.8, zorder=4)
+    # Travel lines with arrows
+    ax.annotate('', xy=(blon, blat), xytext=(loc_a[1], loc_a[0]),
+                arrowprops=dict(arrowstyle='->', color=ORIGIN_A_COLOR,
+                                lw=2.0, linestyle='dashed',
+                                connectionstyle='arc3,rad=0.05'),
+                zorder=4)
+    ax.annotate('', xy=(blon, blat), xytext=(loc_b[1], loc_b[0]),
+                arrowprops=dict(arrowstyle='->', color=ORIGIN_B_COLOR,
+                                lw=2.0, linestyle='dashed',
+                                connectionstyle='arc3,rad=-0.05'),
+                zorder=4)
 
     ax.set_title(
-        f'USMTG Meeting Point: {name_a} ↔ {name_b}\n'
-        f'Optimal: {best["city"]} ({best["airport"]})  |  '
+        f'USMTG: {name_a} ↔ {name_b}\n'
+        f'Best: {best["city"]} ({best["airport"]})  |  '
         f'Max {fmt_time(best["max_time_min"])}  |  '
         f'Total ${best["total_cost_usd"]}  |  '
         f'Imbalance {best["imbalance_min"]} min',
         fontsize=10, pad=8)
     ax.grid(True, lw=0.3, alpha=0.3, color='#aaa')
 
+    # Context inset: full US minimap
+    ax_inset = fig.add_axes([0.01, 0.01, 0.18, 0.22])
+    ax_inset.set_facecolor(OCEAN_COLOR)
+    ax_inset.axhspan(23, 50, color=LAND_COLOR, zorder=0)
+    ax_inset.set_xlim(-128, -65); ax_inset.set_ylim(23, 50)
+    ax_inset.set_xticks([]); ax_inset.set_yticks([])
+    ax_inset.scatter(loc_a[1], loc_a[0], s=25, c=ORIGIN_A_COLOR, zorder=3)
+    ax_inset.scatter(loc_b[1], loc_b[0], s=25, c=ORIGIN_B_COLOR, zorder=3)
+    ax_inset.scatter(blon, blat, s=35, c=BEST_COLOR, marker='*', zorder=4)
+    # Draw zoom box on inset
+    from matplotlib.patches import Rectangle
+    rect = Rectangle((lon_min, lat_min), lon_max - lon_min, lat_max - lat_min,
+                      linewidth=1.2, edgecolor='#333', facecolor='none',
+                      linestyle='--', zorder=5)
+    ax_inset.add_patch(rect)
+    ax_inset.set_title('Context', fontsize=6, pad=2)
+
     # Legend
     leg_items = [
         mpatches.Patch(color=ORIGIN_A_COLOR, label=f'Origin A: {name_a}'),
         mpatches.Patch(color=ORIGIN_B_COLOR, label=f'Origin B: {name_b}'),
-        plt.scatter([], [], s=120, c=BEST_COLOR, marker='*', label='Best meeting point'),
-        plt.scatter([], [], s=80,  c=ALT_COLOR,  marker='D', label='Pareto-optimal alt.'),
+        plt.scatter([], [], s=150, c=BEST_COLOR, marker='*', label='Best meeting point'),
+        plt.scatter([], [], s=90,  c=ALT_COLOR,  marker='D', label='Pareto-optimal alt.'),
     ]
     ax.legend(handles=leg_items, loc='lower left', fontsize=8,
-              framealpha=0.9, edgecolor='#ccc')
+              framealpha=0.95, edgecolor='#ccc')
 
     # Pareto inset
     ax_p.set_facecolor('#fafafa')
@@ -213,7 +260,7 @@ def plot_meeting(loc_a, name_a, loc_b, name_b,
                   markersize=6, markeredgecolor='white', markeredgewidth=0.5, zorder=3)
         btime = best['max_time_min'] / 60
         bcost = best['total_cost_usd']
-        ax_p.scatter([btime], [bcost], s=130, c=BEST_COLOR, marker='*',
+        ax_p.scatter([btime], [bcost], s=160, c=BEST_COLOR, marker='*',
                      zorder=5, edgecolors='#333', linewidths=0.8)
         for t, c, lbl in zip(times, costs, labels):
             ax_p.annotate(lbl, (t, c), color='#333', fontsize=7,

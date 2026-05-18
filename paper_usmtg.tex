@@ -155,7 +155,7 @@ At result time, a Monte Carlo simulation ($N=500$ trials) propagates delay throu
 \subsection{Module~(3): K-Means Geographic Pre-Filter}
 
 We cluster airports into $k=20$ geographic clusters via Lloyd's K-means algorithm \cite{lloyd1982} on $(\phi_v, \lambda_v)$.
-Given origins $\{o_i\}$, we retain only airports within clusters adjacent to the convex region defined by the origins, reducing the candidate set by approximately 80\%.
+Given origins $\{o_i\}$, we retain only airports within clusters whose centroids lie nearest to the centroid of the origins, reducing the candidate set by 53.2\% on average (Section~\ref{sec:sensitivity}).
 
 \subsection{Module~(4): GraphSAGE Airport Embeddings}
 
