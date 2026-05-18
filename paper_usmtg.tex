@@ -63,7 +63,7 @@ This paper makes the following contributions:
 
 The classical meeting point problem asks: given $k$ travellers at distinct locations, which vertex minimises aggregate (or worst-case) travel cost?
 \citeauthor{li2016} \cite{li2016} studied the multi-meeting-point route search problem on road networks and proposed index-based pruning to identify vertices minimising aggregate travel distance or time from $k$ sources.
-Efficient shortest-path computation on large graphs underpins all such methods; Dijkstra's algorithm \cite{dijkstra1959} and its engineered variants \cite{delling2009} are the standard foundation.
+Efficient shortest-path computation on large graphs underpins all such methods; Dijkstra's algorithm \cite{dijkstra1959} and its engineered variants, including contraction hierarchies \cite{geisberger2008} and landmark-based acceleration \cite{bast2016}, are the standard foundation.
 These approaches operate on road graphs and assume uniform per-edge costs; the air network setting introduces heterogeneous fare structures, probabilistic delay, hub-and-spoke topology, and the need for fairness scoring across parties with asymmetric access to hubs --- none of which are addressed in the road network literature.
 
 \subsection{Air Transportation Network Analysis}
@@ -71,12 +71,13 @@ These approaches operate on road graphs and assume uniform per-edge costs; the a
 Air networks have been extensively modelled as complex weighted graphs.
 \citeauthor{guimera2005} \cite{guimera2005} characterised the worldwide air transportation network as a scale-free small-world graph with anomalous centrality properties, and found that hub connectivity follows a power-law degree distribution \cite{barabasi1999}.
 Subsequent work has analysed the topology and robustness of individual carriers' route networks \cite{lordan2014} and modelled the air transport system as a multiplex network \cite{zanin2013}.
+The airline network has also been studied as a vector for epidemic spread \cite{colizza2006}, highlighting the real-world consequences of hub-and-spoke connectivity.
 Despite this rich literature, graph-theoretic studies of air networks rarely incorporate fare prediction or user-facing multi-criteria optimisation as design objectives.
 
 \subsection{Graph Neural Networks for Transportation}
 
 Graph neural networks (GNNs) have demonstrated strong performance on link prediction, node classification, and representation learning in transportation networks.
-Kipf and Welling \cite{kipf2017} introduced the Graph Convolutional Network (GCN), and Hamilton et al.\ \cite{hamilton2017} proposed GraphSAGE with inductive neighbourhood aggregation, enabling generalisation to unseen nodes.
+Kipf and Welling \cite{kipf2017} introduced the Graph Convolutional Network (GCN); Veli\v{c}kovi\'{c} et al.\ \cite{velickovic2018} extended this to attention-weighted neighbourhood aggregation (GAT); and Hamilton et al.\ \cite{hamilton2017} proposed GraphSAGE with inductive aggregation, enabling generalisation to unseen nodes.
 \citeauthor{derrow2021} \cite{derrow2021} applied GNNs to travel-time estimation in Google Maps, demonstrating that graph-structured representations of road segments significantly improve ETA accuracy.
 We apply GraphSAGE to the airport network to produce 32-dimensional airport embeddings used for similarity-guided search pruning; to our knowledge this is the first application of GNN embeddings to airport meeting-point optimisation.
 
@@ -84,12 +85,13 @@ We apply GraphSAGE to the airport network to produce 32-dimensional airport embe
 
 Early work on data-driven airfare prediction was introduced by \citeauthor{etzioni2003} \cite{etzioni2003}, who applied rule-based agents to ticket price time series.
 Subsequent approaches have employed gradient-boosted trees and neural networks to capture booking-window effects, route characteristics, and demand seasonality.
-We train an XGBoost fare predictor on graph-derived features (degree, hub membership, distance, embedding similarity) rather than booking-window data, making the model applicable to arbitrary query-time route estimation without historical ticket data.
+We train an XGBoost \cite{chen2016} fare predictor on graph-derived features (degree, hub membership, distance, embedding similarity) rather than booking-window data, making the model applicable to arbitrary query-time route estimation without historical ticket data.
 
 \subsection{Multi-Objective Optimisation and Fairness}
 
 Multi-objective optimisation problems in transportation commonly employ Pareto-front methods \cite{deb2002} to characterise the trade-off between competing criteria such as travel time and cost.
 When outcomes must be distributed across multiple agents, cooperative game theory provides axiomatic fairness solutions.
+Egalitarian fairness in resource allocation is rooted in Rawlsian justice theory \cite{rawls1971}, which advocates maximising the minimum individual gain.
 The Nash Bargaining Solution \cite{nash1950} maximises the product of agents' gains over a disagreement point; the Kalai--Smorodinsky (KS) solution \cite{kalai1975} instead equalises proportional gains relative to each agent's ideal outcome.
 \citeauthor{lesmana2019} \cite{lesmana2019} applied fairness objectives to on-demand ride-sharing rebalancing; our work extends this line to the airport meeting-point problem, where asymmetric hub access creates structurally unequal starting positions that purely utilitarian optimisation fails to address.
 
@@ -149,7 +151,7 @@ At result time, a Monte Carlo simulation ($N=500$ trials) propagates delay throu
 
 \subsection{Module~(3): K-Means Geographic Pre-Filter}
 
-We cluster airports into $k=20$ geographic clusters via K-means on $(\phi_v, \lambda_v)$.
+We cluster airports into $k=20$ geographic clusters via Lloyd's K-means algorithm \cite{lloyd1982} on $(\phi_v, \lambda_v)$.
 Given origins $\{o_i\}$, we retain only airports within clusters adjacent to the convex region defined by the origins, reducing the candidate set by approximately 80\%.
 
 \subsection{Module~(4): GraphSAGE Airport Embeddings}
@@ -417,6 +419,12 @@ E.\ W.\ Dijkstra, ``A note on two problems in connexion with graphs,'' \textit{N
 \bibitem{delling2009}
 D.\ Delling, P.\ Sanders, D.\ Schultes, and D.\ Wagner, ``Engineering route planning algorithms,'' in \textit{Algorithmics of Large and Complex Networks}, Springer, 2009, pp.~117--139.
 
+\bibitem{geisberger2008}
+R.\ Geisberger, P.\ Sanders, D.\ Schultes, and D.\ Delling, ``Contraction hierarchies: Faster and simpler hierarchical routing in road networks,'' in \textit{Proc.\ 7th Workshop on Experimental Algorithms (WEA)}, Springer LNCS, 2008, pp.~319--333.
+
+\bibitem{bast2016}
+H.\ Bast et al., ``Route planning in transportation networks,'' in \textit{Algorithm Engineering: Selected Results and Surveys}, Springer LNCS, 2016, pp.~19--80.
+
 \bibitem{guimera2005}
 R.\ Guimerà, S.\ Mossa, A.\ Turtschi, and L.\ A.\ N.\ Amaral, ``The worldwide air transportation network: Anomalous centrality, community structure, and cities' global roles,'' \textit{Proceedings of the National Academy of Sciences}, vol.~102, no.~22, pp.~7794--7799, 2005.
 
@@ -429,14 +437,23 @@ O.\ Lordan, J.\ M.\ Sallan, P.\ Simo, and D.\ Gonzalez-Prieto, ``Robustness of t
 \bibitem{zanin2013}
 M.\ Zanin and F.\ Lillo, ``Modelling the air transport with complex networks: A short review,'' \textit{The European Physical Journal Special Topics}, vol.~215, no.~1, pp.~5--21, 2013.
 
+\bibitem{colizza2006}
+V.\ Colizza, A.\ Barrat, M.\ Barthelemy, and A.\ Vespignani, ``The role of the airline transportation network in the prediction and predictability of global epidemics,'' \textit{Proceedings of the National Academy of Sciences}, vol.~103, no.~7, pp.~2015--2020, 2006.
+
 \bibitem{etzioni2003}
 O.\ Etzioni, R.\ Tuchinda, C.\ A.\ Knoblock, and A.\ Yates, ``To buy or not to buy: Mining airfare data to minimize ticket purchase price,'' in \textit{Proc.\ ACM SIGKDD}, 2003, pp.~119--128.
+
+\bibitem{chen2016}
+T.\ Chen and C.\ Guestrin, ``XGBoost: A scalable tree boosting system,'' in \textit{Proc.\ ACM SIGKDD}, 2016, pp.~785--794.
 
 \bibitem{derrow2021}
 A.\ Derrow-Pinion et al., ``ETA prediction with graph neural networks in Google Maps,'' in \textit{Proc.\ CIKM}, 2021.
 
 \bibitem{kipf2017}
 T.\ N.\ Kipf and M.\ Welling, ``Semi-supervised classification with graph convolutional networks,'' in \textit{Proc.\ ICLR}, 2017.
+
+\bibitem{velickovic2018}
+P.\ Veli\v{c}kovi\'{c}, G.\ Cucurull, A.\ Casanova, A.\ Romero, P.\ Li\`{o}, and Y.\ Bengio, ``Graph attention networks,'' in \textit{Proc.\ ICLR}, 2018.
 
 \bibitem{zhou2020}
 J.\ Zhou, G.\ Cui, S.\ Hu, Z.\ Zhang, C.\ Yang, Z.\ Liu, L.\ Wang, C.\ Li, and M.\ Sun, ``Graph neural networks: A review of methods and applications,'' \textit{AI Open}, vol.~1, pp.~57--81, 2020.
@@ -447,6 +464,9 @@ W.\ L.\ Hamilton, R.\ Ying, and J.\ Leskovec, ``Inductive representation learnin
 \bibitem{ke2017}
 G.\ Ke, Q.\ Meng, T.\ Finley, T.\ Wang, W.\ Chen, W.\ Ma, Q.\ Ye, and T.-Y.\ Liu, ``LightGBM: A highly efficient gradient boosting decision tree,'' in \textit{Advances in Neural Information Processing Systems (NeurIPS)}, 2017.
 
+\bibitem{rawls1971}
+J.\ Rawls, \textit{A Theory of Justice}. Cambridge, MA: Harvard University Press, 1971.
+
 \bibitem{nash1950}
 J.\ F.\ Nash, ``The bargaining problem,'' \textit{Econometrica}, vol.~18, no.~2, pp.~155--162, 1950.
 
@@ -455,6 +475,9 @@ E.\ Kalai and M.\ Smorodinsky, ``Other solutions to Nash's bargaining problem,''
 
 \bibitem{lesmana2019}
 N.\ S.\ Lesmana, X.\ Zhang, and X.\ Bei, ``Balancing efficiency and fairness in on-demand ridesourcing,'' in \textit{Advances in Neural Information Processing Systems (NeurIPS)}, 2019.
+
+\bibitem{lloyd1982}
+S.\ P.\ Lloyd, ``Least squares quantization in PCM,'' \textit{IEEE Transactions on Information Theory}, vol.~28, no.~2, pp.~129--137, 1982.
 
 \bibitem{deb2002}
 K.\ Deb, A.\ Pratap, S.\ Agarwal, and T.\ Meyarivan, ``A fast and elitist multiobjective genetic algorithm: NSGA-II,'' \textit{IEEE Transactions on Evolutionary Computation}, vol.~6, no.~2, pp.~182--197, 2002.
